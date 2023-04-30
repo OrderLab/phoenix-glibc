@@ -1180,6 +1180,7 @@ _dl_map_object_from_fd (const char *name, const char *origname, int fd,
 	  if (ph->p_flags & PF_X)
 	    c->prot |= PROT_EXEC;
 #endif
+          c->is_phx = ph->p_align == 0x2000;
 	  break;
 
 	case PT_TLS:

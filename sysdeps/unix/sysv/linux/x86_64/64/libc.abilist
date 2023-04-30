@@ -2394,6 +2394,7 @@ GLIBC_2.34 ns_name_skip F
 GLIBC_2.34 ns_name_uncompress F
 GLIBC_2.34 ns_name_unpack F
 GLIBC_2.34 openpty F
+GLIBC_2.34 phx_get_ranges F
 GLIBC_2.34 posix_spawn_file_actions_addclosefrom_np F
 GLIBC_2.34 pthread_attr_getaffinity_np F
 GLIBC_2.34 pthread_attr_getguardsize F
