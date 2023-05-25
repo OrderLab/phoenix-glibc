@@ -2420,6 +2420,23 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
   if (mm == MAP_FAILED)
     return mm;
 
+  /* Update the mmap info */
+  list_count += 1;
+  allocator_info *c = (allocator_info*)__libc_malloc(sizeof(allocator_info));
+  c->start = mm;
+  c->length = nb;
+  if (allocator_list == NULL)
+    {
+      c->next = NULL;
+      allocator_list = c;
+    }
+  else
+    {
+      allocator_info *head = allocator_list;
+      c->next = head;
+      allocator_list = c;
+    }
+
 #ifdef MAP_HUGETLB
   if (!(extra_flags & MAP_HUGETLB))
     madvise_thp (mm, size);
@@ -3042,6 +3059,31 @@ munmap_chunk (mchunkptr p)
      bad shape.  Just leave the block hanging around, the process will
      terminate shortly anyway since not much can be done.  */
   __munmap ((char *) block, total_size);
+
+  /* Update the mmap info */
+  list_count -= 1;
+  allocator_info *cur_node = allocator_list;
+  allocator_info *prev = NULL;
+  while (1)
+  {
+    assert (cur_node != NULL);
+    if (cur_node->start == block && cur_node->length == total_size)
+    {
+      if (cur_node == allocator_list)
+        allocator_list = cur_node->next;
+      else
+      {
+        prev->next = cur_node->next;
+      }
+      __libc_free(cur_node);
+      break;
+    }
+    else
+    {
+      prev = cur_node;
+      cur_node = cur_node->next;
+    }
+  }
 }
 
 #if HAVE_MREMAP
@@ -3751,6 +3793,30 @@ __libc_calloc (size_t n, size_t elem_size)
    ------------------------------ malloc ------------------------------
  */
 
+typedef struct allocator_info
+{
+  void *start;
+  INTERNAL_SIZE_T length;
+  allocator_info *next;
+} allocator_info;
+
+static allocator_info *allocator_list = NULL;
+
+static INTERNAL_SIZE_T list_count = 0;
+
+void *
+__phy_get_malloc_ranges (void)
+{
+  allocator_info* list[list_count];
+  allocator_info* cur_node = allocator_list;
+  for (int i = 0; i < list_count; i++)
+  {
+    list[i] = cur_node;
+    cur_node = cur_node->next;
+  }
+  return list;
+}
+
 static void *
 _int_malloc (mstate av, size_t bytes)
 {
@@ -3798,7 +3864,7 @@ _int_malloc (mstate av, size_t bytes)
     {
       void *p = sysmalloc (nb, av);
       if (p != NULL)
-	alloc_perturb (p, bytes);
+    alloc_perturb (p, bytes);
       return p;
     }
 
