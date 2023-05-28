@@ -3805,7 +3805,7 @@ static allocator_info *allocator_list = NULL;
 static INTERNAL_SIZE_T list_count = 0;
 
 void *
-__phy_get_malloc_ranges (void)
+phy_get_malloc_ranges (void)
 {
   allocator_info* list[list_count];
   allocator_info* cur_node = allocator_list;
