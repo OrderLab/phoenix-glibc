@@ -1272,6 +1272,11 @@ nextchunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
       _int_realloc: Takes and returns tagged memory.
 */
 
+/* Mmap range info support */
+static allocator_info *allocator_list = NULL;
+
+static INTERNAL_SIZE_T list_count = 0;
+
 /* The chunk header is two SIZE_SZ elements, but this is used widely, so
    we define it here for clarity later.  */
 #define CHUNK_HDR_SZ (2 * SIZE_SZ)
@@ -3067,7 +3072,7 @@ munmap_chunk (mchunkptr p)
   while (1)
   {
     assert (cur_node != NULL);
-    if (cur_node->start == block && cur_node->length == total_size)
+    if (cur_node->start == (void*)block && cur_node->length == total_size)
     {
       if (cur_node == allocator_list)
         allocator_list = cur_node->next;
@@ -3793,28 +3798,20 @@ __libc_calloc (size_t n, size_t elem_size)
    ------------------------------ malloc ------------------------------
  */
 
-typedef struct allocator_info
-{
-  void *start;
-  INTERNAL_SIZE_T length;
-  allocator_info *next;
-} allocator_info;
-
-static allocator_info *allocator_list = NULL;
-
-static INTERNAL_SIZE_T list_count = 0;
-
 void *
 phy_get_malloc_ranges (void)
 {
-  allocator_info* list[list_count];
+  allocator_info *list[list_count];
   allocator_info* cur_node = allocator_list;
   for (int i = 0; i < list_count; i++)
   {
     list[i] = cur_node;
+
+    printf("Start from %p with size %zu\n", list[i]->start, cur_node->length);
+
     cur_node = cur_node->next;
   }
-  return list;
+  return allocator_list;
 }
 
 static void *

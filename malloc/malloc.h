@@ -119,6 +119,15 @@ extern struct mallinfo mallinfo (void) __THROW __MALLOC_DEPRECATED;
 /* Returns a copy of the updated current mallinfo. */
 extern struct mallinfo2 mallinfo2 (void) __THROW;
 
+/* Mmap range info support */
+typedef struct allocator_info_base allocator_info;
+struct allocator_info_base
+{
+  void *start;
+  size_t length;
+  allocator_info *next;
+};
+
 /* SVID2/XPG mallopt options */
 #ifndef M_MXFAST
 # define M_MXFAST  1    /* maximum request size for "fastbins" */
