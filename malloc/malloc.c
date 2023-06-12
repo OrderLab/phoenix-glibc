@@ -2442,6 +2442,9 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
       allocator_list = c;
     }
 
+  printf ("malloc done:\n");
+  phx_get_malloc_ranges();
+
 #ifdef MAP_HUGETLB
   if (!(extra_flags & MAP_HUGETLB))
     madvise_thp (mm, size);
@@ -3066,6 +3069,8 @@ munmap_chunk (mchunkptr p)
   __munmap ((char *) block, total_size);
 
   /* Update the mmap info */
+  printf ("munmap:\n");
+  phx_get_malloc_ranges ();
   list_count -= 1;
   allocator_info *cur_node = allocator_list;
   allocator_info *prev = NULL;
@@ -3799,7 +3804,7 @@ __libc_calloc (size_t n, size_t elem_size)
  */
 
 void *
-phy_get_malloc_ranges (void)
+phx_get_malloc_ranges (void)
 {
   allocator_info *list[list_count];
   allocator_info* cur_node = allocator_list;
