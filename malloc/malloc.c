@@ -2732,7 +2732,7 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
         }
 
       if (brk == (char *) (MORECORE_FAILURE))
-        {
+        { 
           /*
              If have mmap, try using it as a backup when MORECORE fails or
              cannot be used. This is worth doing on systems that have "holes" in
@@ -3806,15 +3806,39 @@ __libc_calloc (size_t n, size_t elem_size)
 void *
 phx_get_malloc_ranges (void)
 {
-  allocator_info *list[list_count];
-  allocator_info* cur_node = allocator_list;
-  for (int i = 0; i < list_count; i++)
+  /* Iterate the arenas */
+  size_t count = 1;
+  struct malloc_state* cur_arena = &main_arena;
+  while (cur_arena->next != &main_arena && cur_arena->next != NULL) {
+    count = count + 1;
+    cur_arena = cur_arena->next;
+  }
+  size_t size = sizeof(allocator_info) * count;
+  allocator_info *list[count] = (allocator **) MMAP (
+      0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+
+  /* Traverse again to fill in the list */
+
+  // Main Arena
+  list[0]->start = mp_.sbrk_base;
+  list[0]->length = MORECORE(0) - mp_.sbrk_base;
+
+  // Other Arena(s)
+  cur_arena = main_arena.next;
+  for (size_t i = 1; i < count; i++) {
+    heap_info *heap = heap_for_ptr (top (cur_arena));
+    list[i]->start = (void *)heap;
+    list[i]->length = heap->size;
+  }
+
+  // allocator_info* cur_node = allocator_list;
+  for (int i = 0; i < count; i++)
   {
-    list[i] = cur_node;
+    // list[i] = cur_node;
 
-    printf("Start from %p with size %zu\n", list[i]->start, cur_node->length);
-
-    cur_node = cur_node->next;
+    printf("Start from %p with size %zu\n", list[i]->start, list[i]->length);
+    
+    // cur_node = cur_node->next;
   }
   return allocator_list;
 }

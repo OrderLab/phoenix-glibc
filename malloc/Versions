@@ -140,5 +140,6 @@ libc_malloc_debug {
   }
   GLIBC_2.33 {
     mallinfo2;
+    phx_get_malloc_ranges;
   }
 }
