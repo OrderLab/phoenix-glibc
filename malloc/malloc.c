@@ -3821,7 +3821,7 @@ phx_get_malloc_ranges (void)
 
   // Main Arena
   list[0]->start = mp_.sbrk_base;
-  list[0]->length = MORECORE(0) - mp_.sbrk_base;
+  list[0]->length = main_arena.top - mp_.sbrk_base;
 
   // Other Arena(s)
   cur_arena = main_arena.next;
