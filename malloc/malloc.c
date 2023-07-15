@@ -1273,9 +1273,9 @@ nextchunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 */
 
 /* Mmap range info support */
-static allocator_info *allocator_list = NULL;
+static allocator_info **allocator_list = NULL;
 
-static INTERNAL_SIZE_T list_count = 0;
+// static INTERNAL_SIZE_T list_count = 0;
 
 /* The chunk header is two SIZE_SZ elements, but this is used widely, so
    we define it here for clarity later.  */
@@ -2426,7 +2426,7 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
     return mm;
 
   /* Update the mmap info */
-  list_count += 1;
+  /*list_count += 1;
   allocator_info *c = (allocator_info*)__libc_malloc(sizeof(allocator_info));
   c->start = mm;
   c->length = nb;
@@ -2440,10 +2440,10 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
       allocator_info *head = allocator_list;
       c->next = head;
       allocator_list = c;
-    }
+    }*/
 
   printf ("malloc done:\n");
-  phx_get_malloc_ranges();
+  // phx_get_malloc_ranges();
 
 #ifdef MAP_HUGETLB
   if (!(extra_flags & MAP_HUGETLB))
@@ -3071,7 +3071,7 @@ munmap_chunk (mchunkptr p)
   /* Update the mmap info */
   printf ("munmap:\n");
   phx_get_malloc_ranges ();
-  list_count -= 1;
+  /*list_count -= 1;
   allocator_info *cur_node = allocator_list;
   allocator_info *prev = NULL;
   while (1)
@@ -3093,7 +3093,7 @@ munmap_chunk (mchunkptr p)
       prev = cur_node;
       cur_node = cur_node->next;
     }
-  }
+  }*/
 }
 
 #if HAVE_MREMAP
@@ -3371,6 +3371,7 @@ __libc_malloc (size_t bytes)
 
   assert (!victim || chunk_is_mmapped (mem2chunk (victim)) ||
           ar_ptr == arena_for_chunk (mem2chunk (victim)));
+
   return victim;
 }
 libc_hidden_def (__libc_malloc)
@@ -3813,22 +3814,25 @@ phx_get_malloc_ranges (void)
     count = count + 1;
     cur_arena = cur_arena->next;
   }
-  size_t size = sizeof(allocator_info) * count;
-  allocator_info *list[count] = (allocator **) MMAP (
+  size_t size = sizeof(allocator_info *) * count;
+  allocator_list = (allocator_info **) MMAP (
       0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
 
   /* Traverse again to fill in the list */
 
   // Main Arena
-  list[0]->start = mp_.sbrk_base;
-  list[0]->length = main_arena.top - mp_.sbrk_base;
+  size = sizeof(allocator_info);
+  allocator_list[0] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  allocator_list[0]->start = mp_.sbrk_base;
+  allocator_list[0]->length = (uintptr_t)((void *)main_arena.top - (void *)mp_.sbrk_base);
 
   // Other Arena(s)
   cur_arena = main_arena.next;
   for (size_t i = 1; i < count; i++) {
+    allocator_list[i] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
     heap_info *heap = heap_for_ptr (top (cur_arena));
-    list[i]->start = (void *)heap;
-    list[i]->length = heap->size;
+    allocator_list[i]->start = (void *)heap;
+    allocator_list[i]->length = heap->size;
   }
 
   // allocator_info* cur_node = allocator_list;
@@ -3836,7 +3840,7 @@ phx_get_malloc_ranges (void)
   {
     // list[i] = cur_node;
 
-    printf("Start from %p with size %zu\n", list[i]->start, list[i]->length);
+    printf("Start from %p with size %zu\n", allocator_list[i]->start, allocator_list[i]->length);
     
     // cur_node = cur_node->next;
   }
