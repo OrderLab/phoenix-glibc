@@ -124,8 +124,7 @@ typedef struct allocator_info_base allocator_info;
 struct allocator_info_base
 {
   void *start;
-  size_t length;
-  // allocator_info *next;
+  void *end;
 };
 
 /* SVID2/XPG mallopt options */

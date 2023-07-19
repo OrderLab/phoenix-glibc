@@ -663,7 +663,7 @@ libc_hidden_proto (__libc_memalign)
 */
 void*  __libc_valloc(size_t);
 
-
+void*  __libc_phx_get_malloc_ranges(void);
 
 /*
   mallinfo()
@@ -1271,11 +1271,6 @@ nextchunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
       _mid_memalign: Returns tagged memory.
       _int_realloc: Takes and returns tagged memory.
 */
-
-/* Mmap range info support */
-static allocator_info **allocator_list = NULL;
-
-// static INTERNAL_SIZE_T list_count = 0;
 
 /* The chunk header is two SIZE_SZ elements, but this is used widely, so
    we define it here for clarity later.  */
@@ -2425,25 +2420,7 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
   if (mm == MAP_FAILED)
     return mm;
 
-  /* Update the mmap info */
-  /*list_count += 1;
-  allocator_info *c = (allocator_info*)__libc_malloc(sizeof(allocator_info));
-  c->start = mm;
-  c->length = nb;
-  if (allocator_list == NULL)
-    {
-      c->next = NULL;
-      allocator_list = c;
-    }
-  else
-    {
-      allocator_info *head = allocator_list;
-      c->next = head;
-      allocator_list = c;
-    }*/
-
   printf ("malloc done:\n");
-  // phx_get_malloc_ranges();
 
 #ifdef MAP_HUGETLB
   if (!(extra_flags & MAP_HUGETLB))
@@ -3070,7 +3047,7 @@ munmap_chunk (mchunkptr p)
 
   /* Update the mmap info */
   printf ("munmap:\n");
-  phx_get_malloc_ranges ();
+  
   /*list_count -= 1;
   allocator_info *cur_node = allocator_list;
   allocator_info *prev = NULL;
@@ -3372,7 +3349,7 @@ __libc_malloc (size_t bytes)
   assert (!victim || chunk_is_mmapped (mem2chunk (victim)) ||
           ar_ptr == arena_for_chunk (mem2chunk (victim)));
 
-  return victim;
+  return (void *)0x123456789;
 }
 libc_hidden_def (__libc_malloc)
 
@@ -3635,6 +3612,71 @@ __libc_valloc (size_t bytes)
   return _mid_memalign (pagesize, bytes, address);
 }
 
+/* Mmap range info support */
+static allocator_info **allocator_list = NULL;
+
+void * 
+__libc_phx_get_malloc_ranges (void)
+{
+  /* Iterate the arenas */
+  size_t count = 1;
+  struct malloc_state* cur_arena = &main_arena;
+  while (cur_arena->next != &main_arena) {
+    printf("arena\n");
+    count = count + 1;
+
+    cur_arena = cur_arena->next;
+
+    heap_info *heap = heap_for_ptr (top (cur_arena));
+    while (heap->prev != NULL)
+    {
+      count += 1;
+      heap = heap->prev;
+    }
+
+  }
+  size_t size = sizeof(allocator_info *) * count;
+  allocator_list = (allocator_info **) MMAP (
+      0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+
+  /* Traverse again to fill in the list */
+  printf("count = %lu\n", count);
+  /* Main Arena */
+  size = sizeof(allocator_info);
+  allocator_list[0] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  allocator_list[0]->start = mp_.sbrk_base;
+  /* printf("top = %p, sbrk = %p\n", (void *)main_arena.top, (void *)MORECORE(0)); */
+  allocator_list[0]->end = (void *)MORECORE(0);
+
+  /* Other Arena(s) */
+  cur_arena = main_arena.next;
+  for (size_t i = 1; i < count; i++) {
+    allocator_list[i] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+    heap_info *heap = heap_for_ptr (top (cur_arena));
+    allocator_list[i]->start = (void *)heap;
+    allocator_list[i]->end = (void *)(heap->size + (void *)heap);
+
+    while (heap->prev != NULL)
+    {
+      count += 1;
+      heap = heap->prev;
+      allocator_list[i] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+      allocator_list[i]->start = (void *)heap;
+      allocator_list[i]->end = (void *)(heap->size + (void *)heap);
+    }
+    
+    cur_arena = cur_arena->next;
+  }
+
+  for (int i = 0; i < count; i++)
+  {
+
+    printf("Start from %p, end at %p\n", allocator_list[i]->start, allocator_list[i]->end);
+
+  }
+  return allocator_list;
+}
+
 void *
 __libc_pvalloc (size_t bytes)
 {
@@ -3803,50 +3845,6 @@ __libc_calloc (size_t n, size_t elem_size)
 /*
    ------------------------------ malloc ------------------------------
  */
-
-void *
-phx_get_malloc_ranges (void)
-{
-  /* Iterate the arenas */
-  size_t count = 1;
-  struct malloc_state* cur_arena = &main_arena;
-  while (cur_arena->next != &main_arena && cur_arena->next != NULL) {
-    count = count + 1;
-    cur_arena = cur_arena->next;
-  }
-  size_t size = sizeof(allocator_info *) * count;
-  allocator_list = (allocator_info **) MMAP (
-      0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-
-  /* Traverse again to fill in the list */
-
-  // Main Arena
-  size = sizeof(allocator_info);
-  allocator_list[0] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  allocator_list[0]->start = mp_.sbrk_base;
-  allocator_list[0]->length = (uintptr_t)((void *)main_arena.top - (void *)mp_.sbrk_base);
-
-  // Other Arena(s)
-  cur_arena = main_arena.next;
-  for (size_t i = 1; i < count; i++) {
-    allocator_list[i] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-    heap_info *heap = heap_for_ptr (top (cur_arena));
-    allocator_list[i]->start = (void *)heap;
-    allocator_list[i]->length = heap->size;
-  }
-
-  // allocator_info* cur_node = allocator_list;
-  for (int i = 0; i < count; i++)
-  {
-    // list[i] = cur_node;
-
-    printf("Start from %p with size %zu\n", allocator_list[i]->start, allocator_list[i]->length);
-    
-    // cur_node = cur_node->next;
-  }
-  return allocator_list;
-}
-
 static void *
 _int_malloc (mstate av, size_t bytes)
 {
@@ -5995,6 +5993,7 @@ strong_alias (__libc_memalign, __memalign)
 weak_alias (__libc_memalign, memalign)
 strong_alias (__libc_realloc, __realloc) strong_alias (__libc_realloc, realloc)
 strong_alias (__libc_valloc, __valloc) weak_alias (__libc_valloc, valloc)
+strong_alias (__libc_phx_get_malloc_ranges, __phx_get_malloc_ranges) weak_alias (__libc_phx_get_malloc_ranges, phx_get_malloc_ranges)
 strong_alias (__libc_pvalloc, __pvalloc) weak_alias (__libc_pvalloc, pvalloc)
 strong_alias (__libc_mallinfo, __mallinfo)
 weak_alias (__libc_mallinfo, mallinfo)
