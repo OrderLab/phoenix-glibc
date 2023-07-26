@@ -1931,6 +1931,45 @@ static struct malloc_par mp_ =
    This is called from ptmalloc_init () or from _int_new_arena ()
    when creating a new arena.
  */
+#define PHX_PRESERVE_LIMIT 64
+#define SYS_PHX_PRESERVE_META 451
+#define SYS_PHX_GET_META 452
+
+void phx_get_meta(void **data, unsigned int *len){
+    // Parameter should be reconsidered (PHX_PRESERVE_LIMIT)
+    int ret = 0;
+
+    data = malloc(sizeof(unsigned long) * PHX_PRESERVE_LIMIT);
+    ret = syscall(SYS_PHX_GET_META, data, len);
+    if (ret)
+        fprintf(stderr, "phx_get_meta did not copy enough data.\n");
+    if (*len == 0) {
+        free(*data);
+        *data = NULL;
+    }
+}
+
+void phx_preserve_meta(void *data, const unsigned int len){
+    syscall(SYS_PHX_PRESERVE_META, data, len);
+}
+
+struct phx_malloc_meta {
+  struct malloc_state *main_arena;
+  struct malloc_par *mp_;
+  struct malloc_state *false_next;
+};
+
+void *phx_get_malloc_meta (struct phx_malloc_meta *meta) {
+  meta->main_arena = (struct malloc_state *) MMAP (0, sizeof(struct malloc_state),
+			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
+			    0);
+  meta->mp_ = (struct malloc_par *) MMAP (0, sizeof(struct malloc_par),
+			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
+			    0);
+  // Copy and create new meta
+  memcpy(meta->main_arena, &main_arena, sizeof(struct malloc_state));
+  memcpy(meta->mp_, &mp_, sizeof(struct malloc_par));
+}
 
 static void
 malloc_init_state (mstate av)
@@ -1954,6 +1993,36 @@ malloc_init_state (mstate av)
   atomic_store_relaxed (&av->have_fastchunks, false);
 
   av->top = initial_top (av);
+}
+
+static void
+malloc_recover_meta (struct phx_malloc_meta *meta, struct malloc_state *false_next)
+{
+  printf("meta recovering %p\n", meta);
+  // Recover some fields in the structs to make it work well
+  meta->main_arena->mutex = _LIBC_LOCK_INITIALIZER;
+  
+  struct malloc_state *current = &main_arena;
+  while ((uintptr_t)current->next != (uintptr_t)false_next) {
+    current = current->next;
+  }
+  current->next = &main_arena;
+}
+
+// Used for restart function to get malloc meta preserved
+static void phx_malloc_preserve_meta() {
+  void **meta;
+  meta = (void *) MMAP (0, sizeof(unsigned long),
+			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
+			    extra_flags);
+  struct phx_malloc_meta *malloc_meta = (phx_malloc_meta *) MMAP (0, sizeof(struct phx_malloc_meta),
+			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
+			    0);
+  phx_get_malloc_meta(malloc_meta);
+  meta[0] = malloc_meta->main_arena;
+  meta[1] = malloc_meta->mp_;
+  meta[2] = &main_arena;
+  phx_preserve_meta(meta, 3);
 }
 
 /*

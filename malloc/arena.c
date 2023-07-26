@@ -304,6 +304,8 @@ next_env_entry (char ***position)
 static void tcache_key_initialize (void);
 #endif
 
+extern void phx_get_meta(void *data, unsigned int *len);
+
 static void
 ptmalloc_init (void)
 {
@@ -341,7 +343,18 @@ ptmalloc_init (void)
 
   thread_arena = &main_arena;
 
-  malloc_init_state (&main_arena);
+  // Try to restart with previous meta
+  void *data;
+  phx_get_meta(&data, 3);
+  phx_malloc_meta *meta = (phx_malloc_meta *)data;
+
+  if (meta == NULL){
+    malloc_init_state (&main_arena);
+  }else{
+    memcpy(&main_arena, meta->main_arena, sizeof(malloc_state));
+    memcpy(&mp_, meta->mp_, sizeof(malloc_par));
+    malloc_recover_meta(&main_arena, meta->false_next);
+  }
 
 #if HAVE_TUNABLES
   TUNABLE_GET (top_pad, size_t, TUNABLE_CALLBACK (set_top_pad));
