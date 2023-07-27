@@ -304,7 +304,21 @@ next_env_entry (char ***position)
 static void tcache_key_initialize (void);
 #endif
 
-extern void phx_get_meta(void *data, unsigned int *len);
+static void static_memcpy(struct phx_malloc_meta *meta) {
+  memcpy(&main_arena, meta->main_arena, sizeof(struct malloc_state));
+  memcpy(&mp_, meta->mp_, sizeof(struct malloc_par));
+  memcpy(&perturb_byte, meta->perturb_byte, sizeof(int));
+  memcpy(&global_max_fast, meta->global, sizeof(uint8_t));
+  memcpy(&tcache_key, meta->tcache_key, sizeof(uintptr_t));
+  memcpy(&__malloc_initialized, meta->__malloc_initialized, sizeof(bool));
+  memcpy(&__always_fail_morecore, meta->__always_fail_morecore, sizeof(bool));
+  memcpy(&aligned_heap_area, meta->aligned_heap_area, sizeof(char *));
+  memcpy(&free_list, meta->free_list, sizeof(mstate));
+  memcpy(&narenas_limit, meta->narenas_limit, sizeof(size_t));
+  memcpy(&narenas, meta->narenas, sizeof(size_t));
+  memcpy(&next_to_use, meta->next_to_use, sizeof(mstate));
+  memcpy(&may_shrink_heap, meta->may_shrink_heap, sizeof(int));
+}
 
 static void
 ptmalloc_init (void)
@@ -344,17 +358,12 @@ ptmalloc_init (void)
   thread_arena = &main_arena;
 
   // Try to restart with previous meta
-  void *data;
-  phx_get_meta(&data, 3);
-  phx_malloc_meta *meta = (phx_malloc_meta *)data;
+  struct phx_malloc_meta data;
+  unsigned int len = 3;
+  phx_get_meta(&data, &len);
+  struct phx_malloc_meta *meta = (struct phx_malloc_meta *)data;
 
-  if (meta == NULL){
-    malloc_init_state (&main_arena);
-  }else{
-    memcpy(&main_arena, meta->main_arena, sizeof(malloc_state));
-    memcpy(&mp_, meta->mp_, sizeof(malloc_par));
-    malloc_recover_meta(&main_arena, meta->false_next);
-  }
+  malloc_init_state (&main_arena);
 
 #if HAVE_TUNABLES
   TUNABLE_GET (top_pad, size_t, TUNABLE_CALLBACK (set_top_pad));
@@ -440,6 +449,10 @@ ptmalloc_init (void)
         }
     }
 #endif
+  if (meta != NULL){
+    static_memcpy (meta);
+    malloc_recover_meta (meta->false_next);
+  }
 }
 
 /* Managing heaps and arenas (for concurrent threads) */
