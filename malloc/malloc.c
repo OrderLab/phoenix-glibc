@@ -1935,6 +1935,9 @@ static struct malloc_par mp_ =
 #define SYS_PHX_PRESERVE_META 451
 #define SYS_PHX_GET_META 452
 
+/* Process-wide key to try and catch a double-free in the same thread.  */
+static uintptr_t tcache_key;
+
 struct phx_malloc_meta {
   struct malloc_state *main_arena;
   struct malloc_par *mp_;
@@ -1947,29 +1950,27 @@ struct phx_malloc_meta {
   mstate free_list;
   // __libc_lock_define (, free_list_lock);
   // __libc_lock_define (, list_lock);
-  size_t *narenas_limit;
+  // size_t *narenas_limit;
+  #if IS_IN (libc)
   size_t *narenas;
-  mstate next_to_use;
-  int *may_shrink_heap;
+  #endif
+  // mstate next_to_use;
+  // int *may_shrink_heap;
   struct malloc_state *false_next;
 };
 
-void phx_get_meta(void *data, unsigned int *len){
+int phx_get_meta(void *data, unsigned int *len){
     // Parameter should be reconsidered (PHX_PRESERVE_LIMIT)
-    int ret = 0;
-
-    // *data = malloc(sizeof(unsigned long) * PHX_PRESERVE_LIMIT);
-    ret = syscall(SYS_PHX_GET_META, data, len);
-    if (ret)
-        fprintf(stderr, "phx_get_meta did not copy enough data.\n");
-    if (*len == 0) {
-        free(*data);
-        *data = NULL;
-    }
+    //int ret = 0;
+    //ret = syscall(SYS_PHX_GET_META, data, len);
+    //if (ret)
+      return 0;
+    //else
+    //  return 1;
 }
 
 void phx_preserve_meta(void **data, const unsigned int len){
-    syscall(SYS_PHX_PRESERVE_META, data, len);
+    // syscall(SYS_PHX_PRESERVE_META, data, len);
 }
 
 void phx_get_malloc_meta (struct phx_malloc_meta *meta) {
@@ -2006,58 +2007,6 @@ malloc_init_state (mstate av)
   atomic_store_relaxed (&av->have_fastchunks, false);
 
   av->top = initial_top (av);
-}
-
-static void
-malloc_recover_meta (struct malloc_state *false_next)
-{
-  printf("meta recovering %p\n", meta);
-  // Recover some fields in the structs to make it work well
-  main_arena.mutex = _LIBC_LOCK_INITIALIZER;
-  free_list_lock = _LIBC_LOCK_INITIALIZER;
-  list_lock = _LIBC_LOCK_INITIALIZER;
-  
-  struct malloc_state *current = &main_arena;
-  while ((uintptr_t)current->next != (uintptr_t)false_next) {
-    current = current->next;
-  }
-  current->next = &main_arena;
-
-  if ((uintptr_t)main_arena.next_free == (uintptr_t)false_next) {
-    main_arena.next_free = &main_arena;
-  }
-  if ((uintptr_t)next_to_use == (uintptr_t)false_next) {
-    next_to_use = &main_arena;
-  }
-  if ((uintptr_t)free_list == ((uintptr_t))false_next) {
-    free_list = &main_arena;
-  }
-}
-
-// Used for restart function to get malloc meta preserved
-void phx_malloc_preserve_meta(void) {
-  void **meta;
-  *meta = (void *) MMAP (0, sizeof(unsigned long) * 13,
-			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
-			    0);
-  struct phx_malloc_meta *malloc_meta = (struct phx_malloc_meta *) MMAP (0, sizeof(struct phx_malloc_meta),
-			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
-			    0);
-  phx_get_malloc_meta(malloc_meta);
-  meta[0] = malloc_meta->main_arena;
-  meta[1] = malloc_meta->mp_;
-  meta[2] = malloc_meta->perturb_byte;
-  meta[3] = malloc_meta->global_max_fast;
-  meta[4] = malloc_meta->tcache_key;
-  meta[5] = malloc_meta->__malloc_initialized;
-  meta[6] = malloc_meta->__always_fail_morecore;
-  meta[7] = malloc_meta->free_list;
-  meta[8] = malloc_meta->narenas_limit;
-  meta[9] = malloc_meta->narenas;
-  meta[10] = malloc_meta->next_to_use;
-  meta[11] = malloc_meta->may_shrink_heap;
-  meta[12] = &main_arena;
-  phx_preserve_meta(meta, 13);
 }
 
 /*
@@ -2121,6 +2070,9 @@ madvise_thp (void *p, INTERNAL_SIZE_T size)
 #endif
 }
 
+static void
+malloc_recover_meta (struct malloc_state *false_next);
+
 /* ------------------- Support for multiple arenas -------------------- */
 #include "arena.c"
 
@@ -2133,6 +2085,71 @@ madvise_thp (void *p, INTERNAL_SIZE_T size)
    trashed memory. (It's also possible that there is a coding error
    in malloc. In which case, please report it!)
  */
+
+static void
+malloc_recover_meta (struct malloc_state *false_next)
+{
+  // Recover some fields in the structs to make it work well
+  main_arena.mutex = _LIBC_LOCK_INITIALIZER;
+  free_list_lock = _LIBC_LOCK_INITIALIZER;
+  list_lock = _LIBC_LOCK_INITIALIZER;
+  
+  struct malloc_state *current = &main_arena;
+  while ((uintptr_t)current->next != (uintptr_t)false_next) {
+    current = current->next;
+  }
+  current->next = &main_arena;
+
+  if ((uintptr_t)main_arena.next_free == (uintptr_t)false_next) {
+    main_arena.next_free = &main_arena;
+  }
+  /*
+  if ((uintptr_t)next_to_use == (uintptr_t)false_next) {
+    next_to_use = &main_arena;
+  }
+  */
+  if ((uintptr_t)free_list == (uintptr_t)false_next) {
+    free_list = &main_arena;
+  }
+}
+
+// Used for restart function to get malloc meta preserved
+void phx_malloc_preserve_meta(void) {
+  void **meta;
+  #if IS_IN (libc)
+  meta = (void *) MMAP (0, sizeof(unsigned long) * 11,
+			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
+			    0);
+  #else
+  meta = (void *) MMAP (0, sizeof(unsigned long) * 10,
+			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
+			    0);
+  #endif
+  struct phx_malloc_meta *malloc_meta = (struct phx_malloc_meta *) MMAP (0, sizeof(struct phx_malloc_meta),
+			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
+			    0);
+  phx_get_malloc_meta(malloc_meta);
+  meta[0] = malloc_meta->main_arena;
+  meta[1] = malloc_meta->mp_;
+  meta[2] = malloc_meta->perturb_byte;
+  meta[3] = malloc_meta->global_max_fast;
+  meta[4] = malloc_meta->tcache_key;
+  meta[5] = malloc_meta->__malloc_initialized;
+  meta[6] = malloc_meta->__always_fail_morecore;
+  meta[7] = malloc_meta->aligned_heap_area;
+  meta[8] = malloc_meta->free_list;
+  // meta[8] = malloc_meta->narenas_limit;
+  #if IS_IN (libc)
+  meta[9] = malloc_meta->narenas;
+  meta[10] = &main_arena;
+  phx_preserve_meta(meta, 11);
+  return;
+  #endif
+  // meta[10] = malloc_meta->next_to_use;
+  //meta[11] = malloc_meta->may_shrink_heap;
+  meta[9] = &main_arena;
+  phx_preserve_meta(meta, 10);
+}
 
 #if !MALLOC_DEBUG
 
@@ -3252,9 +3269,6 @@ typedef struct tcache_perthread_struct
 
 static __thread bool tcache_shutting_down = false;
 static __thread tcache_perthread_struct *tcache = NULL;
-
-/* Process-wide key to try and catch a double-free in the same thread.  */
-static uintptr_t tcache_key;
 
 /* The value of tcache_key does not really have to be a cryptographically
    secure random number.  It only needs to be arbitrary enough so that it does
