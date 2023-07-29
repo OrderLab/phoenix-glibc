@@ -3751,12 +3751,13 @@ __libc_phx_get_malloc_ranges (void)
       count += 1;
       heap = heap->prev;
     }
-
   }
+  count += 1;
   size_t size = sizeof(allocator_info *) * count;
   allocator_list = (allocator_info **) MMAP (
       0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
 
+  
   /* Traverse again to fill in the list */
   printf("count = %lu\n", count);
   /* Main Arena */
@@ -3768,7 +3769,7 @@ __libc_phx_get_malloc_ranges (void)
 
   /* Other Arena(s) */
   cur_arena = main_arena.next;
-  for (size_t i = 1; i < count; i++) {
+  for (size_t i = 1; i < count-1; i++) {
     allocator_list[i] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
     heap_info *heap = heap_for_ptr (top (cur_arena));
     allocator_list[i]->start = (void *)heap;
@@ -3785,8 +3786,9 @@ __libc_phx_get_malloc_ranges (void)
     
     cur_arena = cur_arena->next;
   }
+  allocator_list[count-1] = NULL;
 
-  for (int i = 0; i < count; i++)
+  for (int i = 0; i < count-1; i++)
   {
 
     printf("Start from %p, end at %p\n", allocator_list[i]->start, allocator_list[i]->end);
