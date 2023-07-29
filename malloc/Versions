@@ -6,7 +6,7 @@ libc {
     # interface of malloc functions
     __libc_calloc; __libc_free; __libc_mallinfo; __libc_malloc;
     __libc_mallopt; __libc_memalign; __libc_pvalloc; __libc_realloc;
-    __libc_valloc; __libc_phx_get_malloc_ranges;
+    __libc_valloc; __libc_phx_get_malloc_ranges; phx_malloc_preserve_meta;
     __malloc_initialize_hook; __free_hook; __malloc_hook; __realloc_hook;
     __memalign_hook; __after_morecore_hook;
     __default_morecore; __morecore;
@@ -33,7 +33,7 @@ libc {
     obstack_free;
 
     # p*
-    pvalloc; phx_get_malloc_ranges;
+    pvalloc; phx_get_malloc_ranges; phx_malloc_preserve_meta;
 
     # r*
     realloc;
@@ -109,6 +109,7 @@ libc_malloc_debug {
     realloc;
     valloc;
     phx_get_malloc_ranges;
+    phx_malloc_preserve_meta;
 
     __free_hook;
     __malloc_hook;

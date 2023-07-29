@@ -2114,7 +2114,7 @@ malloc_recover_meta (struct malloc_state *false_next)
 }
 
 // Used for restart function to get malloc meta preserved
-void phx_malloc_preserve_meta(void) {
+void __libc_phx_malloc_preserve_meta(void) {
   void **meta;
   #if IS_IN (libc)
   meta = (void *) MMAP (0, sizeof(unsigned long) * 11,
@@ -6114,6 +6114,7 @@ weak_alias (__libc_memalign, memalign)
 strong_alias (__libc_realloc, __realloc) strong_alias (__libc_realloc, realloc)
 strong_alias (__libc_valloc, __valloc) weak_alias (__libc_valloc, valloc)
 strong_alias (__libc_phx_get_malloc_ranges, __phx_get_malloc_ranges) weak_alias (__libc_phx_get_malloc_ranges, phx_get_malloc_ranges)
+strong_alias (__libc_phx_malloc_preserve_meta, __phx_malloc_preserve_meta) weak_alias (__libc_phx_malloc_preserve_meta, phx_malloc_preserve_meta)
 strong_alias (__libc_pvalloc, __pvalloc) weak_alias (__libc_pvalloc, pvalloc)
 strong_alias (__libc_mallinfo, __mallinfo)
 weak_alias (__libc_mallinfo, mallinfo)
