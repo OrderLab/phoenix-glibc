@@ -1961,28 +1961,16 @@ struct phx_malloc_meta {
 
 int phx_get_meta(void *data, unsigned int *len){
     // Parameter should be reconsidered (PHX_PRESERVE_LIMIT)
-    //int ret = 0;
-    //ret = syscall(SYS_PHX_GET_META, data, len);
-    //if (ret)
+    int ret = 0;
+    ret = syscall(SYS_PHX_GET_META, data, len);
+    if (ret)
       return 0;
-    //else
-    //  return 1;
+    else
+      return 1;
 }
 
 void phx_preserve_meta(void **data, const unsigned int len){
-    // syscall(SYS_PHX_PRESERVE_META, data, len);
-}
-
-void phx_get_malloc_meta (struct phx_malloc_meta *meta) {
-  meta->main_arena = (struct malloc_state *) MMAP (0, sizeof(struct malloc_state),
-			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
-			    0);
-  meta->mp_ = (struct malloc_par *) MMAP (0, sizeof(struct malloc_par),
-			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
-			    0);
-  // Copy and create new meta
-  memcpy(meta->main_arena, &main_arena, sizeof(struct malloc_state));
-  memcpy(meta->mp_, &mp_, sizeof(struct malloc_par));
+    syscall(SYS_PHX_PRESERVE_META, data, len);
 }
 
 static void
@@ -2085,6 +2073,55 @@ malloc_recover_meta (struct malloc_state *false_next);
    trashed memory. (It's also possible that there is a coding error
    in malloc. In which case, please report it!)
  */
+
+void
+phx_get_malloc_meta (struct phx_malloc_meta *meta)
+{
+  meta->main_arena = (struct malloc_state *) MMAP (
+      0, sizeof (struct malloc_state),
+      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  meta->mp_ = (struct malloc_par *) MMAP (
+      0, sizeof (struct malloc_par), mtag_mmap_flags | PROT_READ | PROT_WRITE,
+      0);
+  meta->perturb_byte = (int *) MMAP (
+      0, sizeof (int),
+      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  meta->global_max_fast = (uint8_t *) MMAP (
+      0, sizeof (uint8_t),
+      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  meta->tcache_key = (uintptr_t *) MMAP (
+      0, sizeof (uintptr_t), mtag_mmap_flags | PROT_READ | PROT_WRITE,
+      0);
+  meta->__malloc_initialized = (bool *) MMAP (
+      0, sizeof (bool),
+      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  meta->__always_fail_morecore = (bool *) MMAP (
+      0, sizeof (bool),
+      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  meta->aligned_heap_area = (char *) MMAP (
+      0, sizeof (char),
+      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  meta->free_list = (mstate) MMAP (
+      0, sizeof (mstate), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  #if IS_IN(libc)
+  meta->narenas = (size_t *) MMAP (
+      0, sizeof (size_t), mtag_mmap_flags | PROT_READ | PROT_WRITE,
+      0);
+  #endif
+  // Copy and create new meta
+  memcpy (meta->main_arena, &main_arena, sizeof (struct malloc_state));
+  memcpy (meta->mp_, &mp_, sizeof (struct malloc_par));
+  memcpy (meta->perturb_byte, &perturb_byte, sizeof (int));
+  memcpy (meta->global_max_fast, &global_max_fast, sizeof (uint8_t));
+  memcpy (meta->tcache_key, &tcache_key, sizeof (uintptr_t));
+  memcpy (meta->__malloc_initialized, &__malloc_initialized, sizeof (bool));
+  memcpy (meta->__always_fail_morecore, &__always_fail_morecore, sizeof (bool));
+  memcpy (meta->aligned_heap_area, &aligned_heap_area, sizeof (char));
+  memcpy (meta->free_list, &free_list, sizeof (mstate));
+  #if IS_IN (libc)
+  memcpy (meta->narenas, &arenas, sizeof (size_t))
+  #endif
+}
 
 static void
 malloc_recover_meta (struct malloc_state *false_next)
