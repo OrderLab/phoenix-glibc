@@ -2074,55 +2074,6 @@ malloc_recover_meta (struct malloc_state *false_next);
    in malloc. In which case, please report it!)
  */
 
-void
-phx_get_malloc_meta (struct phx_malloc_meta *meta)
-{
-  meta->main_arena = (struct malloc_state *) MMAP (
-      0, sizeof (struct malloc_state),
-      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  meta->mp_ = (struct malloc_par *) MMAP (
-      0, sizeof (struct malloc_par), mtag_mmap_flags | PROT_READ | PROT_WRITE,
-      0);
-  meta->perturb_byte = (int *) MMAP (
-      0, sizeof (int),
-      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  meta->global_max_fast = (uint8_t *) MMAP (
-      0, sizeof (uint8_t),
-      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  meta->tcache_key = (uintptr_t *) MMAP (
-      0, sizeof (uintptr_t), mtag_mmap_flags | PROT_READ | PROT_WRITE,
-      0);
-  meta->__malloc_initialized = (bool *) MMAP (
-      0, sizeof (bool),
-      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  meta->__always_fail_morecore = (bool *) MMAP (
-      0, sizeof (bool),
-      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  meta->aligned_heap_area = (char *) MMAP (
-      0, sizeof (char),
-      mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  meta->free_list = (mstate) MMAP (
-      0, sizeof (mstate), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  #if IS_IN(libc)
-  meta->narenas = (size_t *) MMAP (
-      0, sizeof (size_t), mtag_mmap_flags | PROT_READ | PROT_WRITE,
-      0);
-  #endif
-  // Copy and create new meta
-  memcpy (meta->main_arena, &main_arena, sizeof (struct malloc_state));
-  memcpy (meta->mp_, &mp_, sizeof (struct malloc_par));
-  memcpy (meta->perturb_byte, &perturb_byte, sizeof (int));
-  memcpy (meta->global_max_fast, &global_max_fast, sizeof (uint8_t));
-  memcpy (meta->tcache_key, &tcache_key, sizeof (uintptr_t));
-  memcpy (meta->__malloc_initialized, &__malloc_initialized, sizeof (bool));
-  memcpy (meta->__always_fail_morecore, &__always_fail_morecore, sizeof (bool));
-  memcpy (meta->aligned_heap_area, &aligned_heap_area, sizeof (char));
-  memcpy (meta->free_list, &free_list, sizeof (mstate));
-  #if IS_IN (libc)
-  memcpy (meta->narenas, &arenas, sizeof (size_t))
-  #endif
-}
-
 static void
 malloc_recover_meta (struct malloc_state *false_next)
 {
@@ -2150,42 +2101,33 @@ malloc_recover_meta (struct malloc_state *false_next)
   }
 }
 
+void
+phx_get_malloc_meta (struct phx_malloc_meta *meta)
+{
+  // Copy and create new meta
+  memcpy (meta->main_arena, &main_arena, sizeof (struct malloc_state));
+  memcpy (meta->mp_, &mp_, sizeof (struct malloc_par));
+  memcpy (meta->perturb_byte, &perturb_byte, sizeof (int));
+  memcpy (meta->global_max_fast, &global_max_fast, sizeof (uint8_t));
+  memcpy (meta->tcache_key, &tcache_key, sizeof (uintptr_t));
+  memcpy (meta->__malloc_initialized, &__malloc_initialized, sizeof (bool));
+  memcpy (meta->__always_fail_morecore, &__always_fail_morecore,
+	  sizeof (bool));
+  memcpy (meta->aligned_heap_area, &aligned_heap_area, sizeof (char));
+  memcpy (meta->free_list, &free_list, sizeof (mstate));
+  #if IS_IN(libc)
+  memcpy (meta->narenas, &arenas, sizeof (size_t))
+  #endif
+}
+
 // Used for restart function to get malloc meta preserved
 void __libc_phx_malloc_preserve_meta(void) {
-  void **meta;
-  #if IS_IN (libc)
-  meta = (void *) MMAP (0, sizeof(unsigned long) * 11,
-			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
-			    0);
-  #else
-  meta = (void *) MMAP (0, sizeof(unsigned long) * 10,
-			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
-			    0);
-  #endif
-  struct phx_malloc_meta *malloc_meta = (struct phx_malloc_meta *) MMAP (0, sizeof(struct phx_malloc_meta),
-			    mtag_mmap_flags | PROT_READ | PROT_WRITE,
-			    0);
+  struct phx_malloc_meta *malloc_meta = (struct phx_malloc_meta *) MMAP (0, 
+    sizeof(struct phx_malloc_meta), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+
   phx_get_malloc_meta(malloc_meta);
-  meta[0] = malloc_meta->main_arena;
-  meta[1] = malloc_meta->mp_;
-  meta[2] = malloc_meta->perturb_byte;
-  meta[3] = malloc_meta->global_max_fast;
-  meta[4] = malloc_meta->tcache_key;
-  meta[5] = malloc_meta->__malloc_initialized;
-  meta[6] = malloc_meta->__always_fail_morecore;
-  meta[7] = malloc_meta->aligned_heap_area;
-  meta[8] = malloc_meta->free_list;
-  // meta[8] = malloc_meta->narenas_limit;
-  #if IS_IN (libc)
-  meta[9] = malloc_meta->narenas;
-  meta[10] = &main_arena;
-  phx_preserve_meta(meta, 11);
-  return;
-  #endif
-  // meta[10] = malloc_meta->next_to_use;
-  //meta[11] = malloc_meta->may_shrink_heap;
-  meta[9] = &main_arena;
-  phx_preserve_meta(meta, 10);
+  
+  syscall(SYS_PHX_PRESERVE_META, meta, sizeof(*malloc_meta));    
 }
 
 #if !MALLOC_DEBUG

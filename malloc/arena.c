@@ -344,15 +344,11 @@ ptmalloc_init (void)
   thread_arena = &main_arena;
 
   // Try to restart with previous meta
-  struct phx_malloc_meta data;
-  unsigned int len = 10;
+  struct phx_malloc_meta meta;
+  unsigned int len = sizeof(meta);
   int ret;
-  #if IS_IN (libc)
-  len = 11;
-  #endif
-  unsigned long *ptr = (unsigned long*)(&data);
+  unsigned long *ptr = (unsigned long*)(&meta);
   ret = phx_get_meta(ptr, &len);
-  struct phx_malloc_meta *meta = (struct phx_malloc_meta *)(&data);
 
   malloc_init_state (&main_arena);
 
@@ -441,8 +437,8 @@ ptmalloc_init (void)
     }
 #endif
   if (ret != 0){
-    static_memcpy (meta);
-    malloc_recover_meta (meta->false_next);
+    static_memcpy (&meta);
+    malloc_recover_meta (meta.false_next);
   }
 }
 
