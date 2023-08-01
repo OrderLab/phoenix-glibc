@@ -2116,7 +2116,7 @@ phx_get_malloc_meta (struct phx_malloc_meta *meta)
   memcpy (meta->aligned_heap_area, &aligned_heap_area, sizeof (char));
   memcpy (meta->free_list, &free_list, sizeof (mstate));
   #if IS_IN(libc)
-  memcpy (meta->narenas, &arenas, sizeof (size_t))
+  memcpy (meta->narenas, &narenas, sizeof (size_t));
   #endif
 }
 
@@ -2127,7 +2127,7 @@ void __libc_phx_malloc_preserve_meta(void) {
 
   phx_get_malloc_meta(malloc_meta);
   
-  syscall(SYS_PHX_PRESERVE_META, meta, sizeof(*malloc_meta));    
+  syscall(SYS_PHX_PRESERVE_META, malloc_meta, sizeof(*malloc_meta));    
 }
 
 #if !MALLOC_DEBUG
