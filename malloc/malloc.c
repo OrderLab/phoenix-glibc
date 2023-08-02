@@ -1939,20 +1939,20 @@ static struct malloc_par mp_ =
 static uintptr_t tcache_key;
 
 struct phx_malloc_meta {
-  struct malloc_state *main_arena;
-  struct malloc_par *mp_;
-  int *perturb_byte;
-  uint8_t *global_max_fast;
-  uintptr_t *tcache_key;
-  bool *__malloc_initialized;
-  bool *__always_fail_morecore;
-  char *aligned_heap_area;
+  struct malloc_state main_arena;
+  struct malloc_par mp_;
+  int perturb_byte;
+  uint8_t global_max_fast;
+  uintptr_t tcache_key;
+  bool __malloc_initialized;
+  bool __always_fail_morecore;
+  char aligned_heap_area;
   mstate free_list;
   // __libc_lock_define (, free_list_lock);
   // __libc_lock_define (, list_lock);
   // size_t *narenas_limit;
   #if IS_IN (libc)
-  size_t *narenas;
+  size_t narenas;
   #endif
   // mstate next_to_use;
   // int *may_shrink_heap;
