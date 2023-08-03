@@ -2105,18 +2105,18 @@ void
 phx_get_malloc_meta (struct phx_malloc_meta *meta)
 {
   // Copy and create new meta
-  memcpy (meta->main_arena, &main_arena, sizeof (struct malloc_state));
-  memcpy (meta->mp_, &mp_, sizeof (struct malloc_par));
-  memcpy (meta->perturb_byte, &perturb_byte, sizeof (int));
-  memcpy (meta->global_max_fast, &global_max_fast, sizeof (uint8_t));
-  memcpy (meta->tcache_key, &tcache_key, sizeof (uintptr_t));
-  memcpy (meta->__malloc_initialized, &__malloc_initialized, sizeof (bool));
-  memcpy (meta->__always_fail_morecore, &__always_fail_morecore,
+  memcpy (&meta->main_arena, &main_arena, sizeof (struct malloc_state));
+  memcpy (&meta->mp_, &mp_, sizeof (struct malloc_par));
+  memcpy (&meta->perturb_byte, &perturb_byte, sizeof (int));
+  memcpy (&meta->global_max_fast, &global_max_fast, sizeof (uint8_t));
+  memcpy (&meta->tcache_key, &tcache_key, sizeof (uintptr_t));
+  memcpy (&meta->__malloc_initialized, &__malloc_initialized, sizeof (bool));
+  memcpy (&meta->__always_fail_morecore, &__always_fail_morecore,
 	  sizeof (bool));
-  memcpy (meta->aligned_heap_area, &aligned_heap_area, sizeof (char));
-  memcpy (meta->free_list, &free_list, sizeof (mstate));
+  memcpy (&meta->aligned_heap_area, &aligned_heap_area, sizeof (char));
+  memcpy (&meta->free_list, &free_list, sizeof (mstate));
   #if IS_IN(libc)
-  memcpy (meta->narenas, &narenas, sizeof (size_t));
+  memcpy (&meta->narenas, &narenas, sizeof (size_t));
   #endif
 }
 
