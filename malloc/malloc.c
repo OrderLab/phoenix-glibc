@@ -3769,10 +3769,11 @@ __libc_phx_get_malloc_ranges (void)
 
   for (int i = 0; i < count-1; i++)
   {
-
-    printf("Start from %p, end at %p\n", allocator_list[i]->start, allocator_list[i]->end);
-
+    printf("raw: start addr = %p, node ptr = %p\n", &allocator_list[i], allocator_list[i]);
+    printf("Start from %p, end at %p\n\n", allocator_list[i]->start, allocator_list[i]->end);
   }
+  printf("next raw: start addr = %p, node ptr = %p\n", &allocator_list[count-1], allocator_list[count-1]);
+  printf("list addr = %p", allocator_list);
   return allocator_list;
 }
 
