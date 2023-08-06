@@ -345,13 +345,14 @@ ptmalloc_init (void)
 
   // Try to restart with previous meta
   struct phx_malloc_meta meta;
-  unsigned int len = sizeof(meta);
+  unsigned int len = sizeof(meta) / sizeof (unsigned long);
+  fprintf(stderr, "Before phx get meta, len = %u\n", len);
   int ret;
   unsigned long *ptr = (unsigned long*)(&meta);
   ret = phx_get_meta(ptr, &len);
-
+  fprintf(stderr, "Finish phx_get_meta\n");
   malloc_init_state (&main_arena);
-
+  fprintf(stderr, "Main arena initialized\n");
 #if HAVE_TUNABLES
   TUNABLE_GET (top_pad, size_t, TUNABLE_CALLBACK (set_top_pad));
   TUNABLE_GET (perturb, int32_t, TUNABLE_CALLBACK (set_perturb_byte));
@@ -436,10 +437,13 @@ ptmalloc_init (void)
         }
     }
 #endif
+  fprintf(stderr, "about to recover meta\n");
   if (ret != 0){
     static_memcpy (&meta);
+    fprintf(stderr, "halfway done, false_next = %p\n", meta.false_next);
     malloc_recover_meta (meta.false_next);
   }
+  fprintf(stderr, "finish recovering meta\n");
 }
 
 /* Managing heaps and arenas (for concurrent threads) */

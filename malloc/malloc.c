@@ -1,4 +1,4 @@
-/* Malloc implementation for multiple threads without lock contention.
+/*Malloc implementation for multiple threads without lock contention.
    Copyright (C) 1996-2023 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
@@ -1969,10 +1969,6 @@ int phx_get_meta(void *data, unsigned int *len){
       return 1;
 }
 
-void phx_preserve_meta(void **data, const unsigned int len){
-    syscall(SYS_PHX_PRESERVE_META, data, len);
-}
-
 static void
 malloc_init_state (mstate av)
 {
@@ -2077,20 +2073,24 @@ malloc_recover_meta (struct malloc_state *false_next);
 static void
 malloc_recover_meta (struct malloc_state *false_next)
 {
+  fprintf(stderr, "false next's addr = %p\n", false_next);
   // Recover some fields in the structs to make it work well
   main_arena.mutex = _LIBC_LOCK_INITIALIZER;
   free_list_lock = _LIBC_LOCK_INITIALIZER;
   list_lock = _LIBC_LOCK_INITIALIZER;
-  
+  fprintf(stderr, "1\n");
   struct malloc_state *current = &main_arena;
   while ((uintptr_t)current->next != (uintptr_t)false_next) {
     current = current->next;
   }
+  fprintf(stderr, "2\n");
   current->next = &main_arena;
 
   if ((uintptr_t)main_arena.next_free == (uintptr_t)false_next) {
     main_arena.next_free = &main_arena;
   }
+
+  fprintf(stderr, "3\n");
   /*
   if ((uintptr_t)next_to_use == (uintptr_t)false_next) {
     next_to_use = &main_arena;
@@ -2118,16 +2118,19 @@ phx_get_malloc_meta (struct phx_malloc_meta *meta)
   #if IS_IN(libc)
   memcpy (&meta->narenas, &narenas, sizeof (size_t));
   #endif
+  meta->false_next = &main_arena;
 }
 
 // Used for restart function to get malloc meta preserved
 void __libc_phx_malloc_preserve_meta(void) {
   struct phx_malloc_meta *malloc_meta = (struct phx_malloc_meta *) MMAP (0, 
     sizeof(struct phx_malloc_meta), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-
+  unsigned int len = sizeof(struct phx_malloc_meta) / sizeof(unsigned long);
   phx_get_malloc_meta(malloc_meta);
   
-  syscall(SYS_PHX_PRESERVE_META, malloc_meta, sizeof(*malloc_meta));    
+  fprintf(stderr, "test in phx malloc preserve meta\n");
+  fprintf(stderr, "size of malloc meta = %x\n", len); 
+  syscall(SYS_PHX_PRESERVE_META, malloc_meta, &len);    
 }
 
 #if !MALLOC_DEBUG
