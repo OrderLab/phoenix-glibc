@@ -3505,26 +3505,26 @@ __libc_realloc (void *oldmem, size_t bytes)
   INTERNAL_SIZE_T nb;         /* padded request size */
 
   void *newp;             /* chunk to return */
-
+  fprintf(stderr, "Before initialization\n");
   if (!__malloc_initialized)
     ptmalloc_init ();
-
+  fprintf(stderr, "after initialization\n");
 #if REALLOC_ZERO_BYTES_FREES
   if (bytes == 0 && oldmem != NULL)
     {
       __libc_free (oldmem); return 0;
     }
 #endif
-
+  fprintf(stderr, "finish free original one\n");
   /* realloc of null is supposed to be same as malloc */
   if (oldmem == 0)
     return __libc_malloc (bytes);
-
+  fprintf(stderr, "1\n");
   /* Perform a quick check to ensure that the pointer's tag matches the
      memory's tag.  */
   if (__glibc_unlikely (mtag_enabled))
     *(volatile char*) oldmem;
-
+  fprintf(stderr, "2\n");
   /* Return the chunk as is whenever possible, i.e. there's enough usable space
      but not so much that we end up fragmenting the block.  We use the trim
      threshold as the heuristic to decide the latter.  */
@@ -3532,6 +3532,7 @@ __libc_realloc (void *oldmem, size_t bytes)
   if (bytes <= usable
       && (unsigned long) (usable - bytes) <= mp_.trim_threshold)
     return oldmem;
+  fprintf(stderr, "3\n");
 
   /* chunk corresponding to oldmem */
   const mchunkptr oldp = mem2chunk (oldmem);
@@ -3738,7 +3739,7 @@ __libc_phx_get_malloc_ranges (void)
 
   
   /* Traverse again to fill in the list */
-  printf("count = %lu\n", count);
+  fprintf(stderr, "in phx_get_malloc_ranges, count = %lu\n", count);
   /* Main Arena */
   size = sizeof(allocator_info);
   allocator_list[0] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
@@ -3769,11 +3770,11 @@ __libc_phx_get_malloc_ranges (void)
 
   for (int i = 0; i < count-1; i++)
   {
-    printf("raw: start addr = %p, node ptr = %p\n", &allocator_list[i], allocator_list[i]);
-    printf("Start from %p, end at %p\n\n", allocator_list[i]->start, allocator_list[i]->end);
+    fprintf(stderr, "raw: start addr = %p, node ptr = %p\n", &allocator_list[i], allocator_list[i]);
+    fprintf(stderr, "Start from %p, end at %p\n", allocator_list[i]->start, allocator_list[i]->end);
   }
-  printf("next raw: start addr = %p, node ptr = %p\n", &allocator_list[count-1], allocator_list[count-1]);
-  printf("list addr = %p", allocator_list);
+  fprintf(stderr, "next raw: start addr = %p, node ptr = %p\n", &allocator_list[count-1], allocator_list[count-1]);
+  fprintf(stderr, "list addr = %p\n", allocator_list);
   return allocator_list;
 }
 
