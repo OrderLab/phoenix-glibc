@@ -2078,24 +2078,23 @@ malloc_recover_meta (struct malloc_state *false_next)
   main_arena.mutex = _LIBC_LOCK_INITIALIZER;
   free_list_lock = _LIBC_LOCK_INITIALIZER;
   list_lock = _LIBC_LOCK_INITIALIZER;
-  fprintf(stderr, "1\n");
-  struct malloc_state *current = &main_arena;
+  /* Iterate the arenas */
+  struct malloc_state* cur_arena = &main_arena;
   while ((uintptr_t)current->next != (uintptr_t)false_next) {
     current = current->next;
   }
-  fprintf(stderr, "2\n");
   current->next = &main_arena;
+
+  cur_arena = &main_arena;
+  while (cur_arena->next != &main_arena) {
+    cur_arena = cur_arena->next;
+    cur_arena->mutex = _LIBC_LOCK_INITIALIZER;
+  }
 
   if ((uintptr_t)main_arena.next_free == (uintptr_t)false_next) {
     main_arena.next_free = &main_arena;
   }
 
-  fprintf(stderr, "3\n");
-  /*
-  if ((uintptr_t)next_to_use == (uintptr_t)false_next) {
-    next_to_use = &main_arena;
-  }
-  */
   if ((uintptr_t)free_list == (uintptr_t)false_next) {
     free_list = &main_arena;
   }
