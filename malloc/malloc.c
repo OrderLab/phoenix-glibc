@@ -2080,10 +2080,10 @@ malloc_recover_meta (struct malloc_state *false_next)
   list_lock = _LIBC_LOCK_INITIALIZER;
   /* Iterate the arenas */
   struct malloc_state* cur_arena = &main_arena;
-  while ((uintptr_t)current->next != (uintptr_t)false_next) {
-    current = current->next;
+  while ((uintptr_t)cur_arena->next != (uintptr_t)false_next) {
+    cur_arena = cur_arena->next;
   }
-  current->next = &main_arena;
+  cur_arena->next = &main_arena;
 
   cur_arena = &main_arena;
   while (cur_arena->next != &main_arena) {
