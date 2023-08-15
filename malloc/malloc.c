@@ -2057,6 +2057,8 @@ madvise_thp (void *p, INTERNAL_SIZE_T size)
 static void
 malloc_recover_meta (struct malloc_state *false_next);
 
+static allocator_info **list_cache = NULL;
+
 /* ------------------- Support for multiple arenas -------------------- */
 #include "arena.c"
 
@@ -2494,6 +2496,8 @@ do_check_malloc_state (mstate av)
    be extended or replaced.
  */
 
+
+
 static void *
 sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
 {
@@ -2521,6 +2525,10 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
 			    extra_flags);
   if (mm == MAP_FAILED)
     return mm;
+ 
+  list_cache[mp_.n_mmaps] = (allocator_info *) MMAP (0, sizeof(allocator_info), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  list_cache[mp_.n_mmaps]->start = (void *)mm;
+  list_cache[mp_.n_mmaps]->end = (void *)(mm + size);
 
   printf ("malloc done:\n");
 
@@ -3391,7 +3399,7 @@ __libc_malloc (size_t bytes)
 {
   mstate ar_ptr;
   void *victim;
-
+  
   _Static_assert (PTRDIFF_MAX <= SIZE_MAX / 2,
                   "PTRDIFF_MAX is not more than half of SIZE_MAX");
 
@@ -3422,6 +3430,7 @@ __libc_malloc (size_t bytes)
 
   if (SINGLE_THREAD_P)
     {
+
       victim = tag_new_usable (_int_malloc (&main_arena, bytes));
       assert (!victim || chunk_is_mmapped (mem2chunk (victim)) ||
 	      &main_arena == arena_for_chunk (mem2chunk (victim)));
@@ -3429,7 +3438,7 @@ __libc_malloc (size_t bytes)
     }
 
   arena_get (ar_ptr, bytes);
-
+  
   victim = _int_malloc (ar_ptr, bytes);
   /* Retry with another arena only if we were able to find a usable arena
      before.  */
@@ -3448,7 +3457,7 @@ __libc_malloc (size_t bytes)
   assert (!victim || chunk_is_mmapped (mem2chunk (victim)) ||
           ar_ptr == arena_for_chunk (mem2chunk (victim)));
 
-  return (void *)0x123456789;
+  return victim;
 }
 libc_hidden_def (__libc_malloc)
 
@@ -3507,26 +3516,26 @@ __libc_realloc (void *oldmem, size_t bytes)
   INTERNAL_SIZE_T nb;         /* padded request size */
 
   void *newp;             /* chunk to return */
-  fprintf(stderr, "Before initialization\n");
+  //fprintf(stderr, "Before initialization\n");
   if (!__malloc_initialized)
     ptmalloc_init ();
-  fprintf(stderr, "after initialization\n");
+  //fprintf(stderr, "after initialization\n");
 #if REALLOC_ZERO_BYTES_FREES
   if (bytes == 0 && oldmem != NULL)
     {
       __libc_free (oldmem); return 0;
     }
 #endif
-  fprintf(stderr, "finish free original one\n");
+  //fprintf(stderr, "finish free original one\n");
   /* realloc of null is supposed to be same as malloc */
   if (oldmem == 0)
     return __libc_malloc (bytes);
-  fprintf(stderr, "1\n");
+  //fprintf(stderr, "1\n");
   /* Perform a quick check to ensure that the pointer's tag matches the
      memory's tag.  */
   if (__glibc_unlikely (mtag_enabled))
     *(volatile char*) oldmem;
-  fprintf(stderr, "2\n");
+  //fprintf(stderr, "2\n");
   /* Return the chunk as is whenever possible, i.e. there's enough usable space
      but not so much that we end up fragmenting the block.  We use the trim
      threshold as the heuristic to decide the latter.  */
@@ -3534,7 +3543,7 @@ __libc_realloc (void *oldmem, size_t bytes)
   if (bytes <= usable
       && (unsigned long) (usable - bytes) <= mp_.trim_threshold)
     return oldmem;
-  fprintf(stderr, "3\n");
+  //fprintf(stderr, "3\n");
 
   /* chunk corresponding to oldmem */
   const mchunkptr oldp = mem2chunk (oldmem);
@@ -3719,7 +3728,9 @@ void *
 __libc_phx_get_malloc_ranges (void)
 {
   /* Iterate the arenas */
-  size_t count = 1;
+  fprintf(stderr, "mp nnmap = %d\n", mp_.n_mmaps);
+  size_t count = 1 + mp_.n_mmaps;
+
   struct malloc_state* cur_arena = &main_arena;
   while (cur_arena->next != &main_arena) {
     printf("arena\n");
@@ -3742,16 +3753,23 @@ __libc_phx_get_malloc_ranges (void)
   
   /* Traverse again to fill in the list */
   fprintf(stderr, "in phx_get_malloc_ranges, count = %lu\n", count);
+
+  /* Get ranges from large allocation list */
+  for (int i = 0; i < mp_.n_mmaps; i++) { 
+    allocator_list[i] = list_cache[i];
+  }
+
   /* Main Arena */
+  int large_cnt = mp_.n_mmaps;
   size = sizeof(allocator_info);
-  allocator_list[0] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  allocator_list[0]->start = mp_.sbrk_base;
+  allocator_list[large_cnt] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  allocator_list[large_cnt]->start = mp_.sbrk_base;
   /* printf("top = %p, sbrk = %p\n", (void *)main_arena.top, (void *)MORECORE(0)); */
-  allocator_list[0]->end = (void *)MORECORE(0);
+  allocator_list[large_cnt]->end = (void *)MORECORE(0);
 
   /* Other Arena(s) */
   cur_arena = main_arena.next;
-  for (size_t i = 1; i < count-1; i++) {
+  for (size_t i = 1+large_cnt; i < count-1; i++) {
     allocator_list[i] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
     heap_info *heap = heap_for_ptr (top (cur_arena));
     allocator_list[i]->start = (void *)heap;
@@ -3759,7 +3777,7 @@ __libc_phx_get_malloc_ranges (void)
 
     while (heap->prev != NULL)
     {
-      count += 1;
+      i += 1;
       heap = heap->prev;
       allocator_list[i] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
       allocator_list[i]->start = (void *)heap;
@@ -3768,6 +3786,7 @@ __libc_phx_get_malloc_ranges (void)
     
     cur_arena = cur_arena->next;
   }
+
   allocator_list[count-1] = NULL;
 
   for (int i = 0; i < count-1; i++)
@@ -3988,11 +4007,12 @@ _int_malloc (mstate av, size_t bytes)
       __set_errno (ENOMEM);
       return NULL;
     }
-
+  
   /* There are no usable arenas.  Fall back to sysmalloc to get a chunk from
      mmap.  */
   if (__glibc_unlikely (av == NULL))
     {
+
       void *p = sysmalloc (nb, av);
       if (p != NULL)
     alloc_perturb (p, bytes);
@@ -4421,7 +4441,8 @@ _int_malloc (mstate av, size_t bytes)
               check_malloced_chunk (av, victim, nb);
               void *p = chunk2mem (victim);
               alloc_perturb (p, bytes);
-              return p;
+ 
+	      return p;
             }
         }
 
@@ -4529,6 +4550,7 @@ _int_malloc (mstate av, size_t bytes)
               check_malloced_chunk (av, victim, nb);
               void *p = chunk2mem (victim);
               alloc_perturb (p, bytes);
+	      //fprintf(stderr, "111 LARGE allocated ptr = %p\n", p);
               return p;
             }
         }
@@ -4567,6 +4589,7 @@ _int_malloc (mstate av, size_t bytes)
           check_malloced_chunk (av, victim, nb);
           void *p = chunk2mem (victim);
           alloc_perturb (p, bytes);
+	  //fprintf(stderr, "2222 LARGE allocated ptr = %p\n", p);
           return p;
         }
 
@@ -4590,6 +4613,7 @@ _int_malloc (mstate av, size_t bytes)
           void *p = sysmalloc (nb, av);
           if (p != NULL)
             alloc_perturb (p, bytes);
+	  //fprintf(stderr, "3333 LARGE allocated ptr = %p\n", p);
           return p;
         }
     }

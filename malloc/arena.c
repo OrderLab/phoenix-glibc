@@ -318,6 +318,8 @@ ptmalloc_init (void)
   tcache_key_initialize ();
 #endif
 
+  list_cache = (allocator_info **) MMAP (0, mp_.n_mmaps_max * sizeof(allocator_info *), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+
 #ifdef USE_MTAG
   if ((TUNABLE_GET_FULL (glibc, mem, tagging, int32_t, NULL) & 1) != 0)
     {
