@@ -2105,6 +2105,9 @@ malloc_recover_meta (struct malloc_state *false_next)
 void
 phx_get_malloc_meta (struct phx_malloc_meta *meta)
 {
+  fprintf(stderr, "main arena addr = %p\n", &main_arena);
+  fprintf(stderr, "main arena's bins addr = %p,  %p, with fd ptr = %p\n", main_arena.bins,  main_arena.bins[0], main_arena.bins[0]->fd);                      
+  fprintf(stderr, "mp's n_mmaps = %d\n", mp_.n_mmaps);
   // Copy and create new meta
   memcpy (&meta->main_arena, &main_arena, sizeof (struct malloc_state));
   memcpy (&meta->mp_, &mp_, sizeof (struct malloc_par));
@@ -2527,6 +2530,7 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
     return mm;
  
   list_cache[mp_.n_mmaps] = (allocator_info *) MMAP (0, sizeof(allocator_info), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  fprintf(stderr, "Create list_cache whose addr = %p\n", &list_cache[mp_.n_mmaps]);
   list_cache[mp_.n_mmaps]->start = (void *)mm;
   list_cache[mp_.n_mmaps]->end = (void *)(mm + size);
 
@@ -2575,6 +2579,7 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
 
   /* update statistics */
   int new = atomic_fetch_add_relaxed (&mp_.n_mmaps, 1) + 1;
+  fprintf(stderr, "nmmaps + 1\n");
   atomic_max (&mp_.max_n_mmaps, new);
 
   unsigned long sum;
@@ -3756,6 +3761,7 @@ __libc_phx_get_malloc_ranges (void)
 
   /* Get ranges from large allocation list */
   for (int i = 0; i < mp_.n_mmaps; i++) { 
+    fprintf(stderr, "mp_.n_mmaps = %d\n", mp_.n_mmaps);
     allocator_list[i] = list_cache[i];
   }
 

@@ -353,6 +353,10 @@ ptmalloc_init (void)
   unsigned long *ptr = (unsigned long*)(&meta);
   ret = phx_get_meta(ptr, &len);
   fprintf(stderr, "Finish phx_get_meta\n");
+  fprintf(stderr, "bin size = %u\n", NBINS*2-2);
+  //fprintf(stderr, "meta's = %p, with fd ptr = %p\n", meta.main_arena.bins[0], meta.main_arena.bins[0]->fd);
+  fprintf(stderr, "meta last's %p\n", meta.main_arena.bins[NBINS*2-3]);
+  //fprintf(stderr, "meta middle's %p, fd ptr = %p\n", meta.main_arena.bins[40], meta.main_arena.bins[0]->fd);
   malloc_init_state (&main_arena);
   fprintf(stderr, "Main arena initialized\n");
 #if HAVE_TUNABLES
@@ -446,6 +450,9 @@ ptmalloc_init (void)
     malloc_recover_meta (meta.false_next);
   }
   fprintf(stderr, "finish recovering meta\n");
+  fprintf(stderr, "recovered main arena addr = %p\n", &main_arena);
+  fprintf(stderr, "main arena's bins addr = %p\n", main_arena.bins[0]);
+  fprintf(stderr, "mp's n_mmaps = %d\n", mp_.n_mmaps);
 }
 
 /* Managing heaps and arenas (for concurrent threads) */
