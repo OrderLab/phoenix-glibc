@@ -1938,6 +1938,8 @@ static struct malloc_par mp_ =
 /* Process-wide key to try and catch a double-free in the same thread.  */
 static uintptr_t tcache_key;
 
+static size_t ma_size;
+
 struct phx_malloc_meta {
   struct malloc_state main_arena;
   struct malloc_par mp_;
@@ -1957,6 +1959,8 @@ struct phx_malloc_meta {
   // mstate next_to_use;
   // int *may_shrink_heap;
   struct malloc_state *false_next;
+  allocator_info ** list_cache;
+  size_t ma_size;
 };
 
 int phx_get_meta(void *data, unsigned int *len){
@@ -2123,6 +2127,8 @@ phx_get_malloc_meta (struct phx_malloc_meta *meta)
   memcpy (&meta->narenas, &narenas, sizeof (size_t));
   #endif
   meta->false_next = &main_arena;
+  memcpy (&meta->list_cache, &list_cache, sizeof (unsigned long));
+  memcpy (&meta->ma_size, &ma_size, sizeof (size_t));
 }
 
 // Used for restart function to get malloc meta preserved
@@ -2818,6 +2824,7 @@ sysmalloc (INTERNAL_SIZE_T nb, mstate av)
       if (size > 0)
         {
           brk = (char *) (MORECORE (size));
+	  fprintf(stderr, "size = %ld, brk 1 = %p\n", size, (void *)brk);
 	  if (brk != (char *) (MORECORE_FAILURE))
 	    madvise_thp (brk, size);
           LIBC_PROBE (memory_sbrk_more, 2, brk, size);
@@ -3772,6 +3779,7 @@ __libc_phx_get_malloc_ranges (void)
   allocator_list[large_cnt]->start = mp_.sbrk_base;
   /* printf("top = %p, sbrk = %p\n", (void *)main_arena.top, (void *)MORECORE(0)); */
   allocator_list[large_cnt]->end = (void *)MORECORE(0);
+  ma_size = (size_t)((void *)MORECORE(0) - (void *)mp_.sbrk_base);
 
   /* Other Arena(s) */
   cur_arena = main_arena.next;

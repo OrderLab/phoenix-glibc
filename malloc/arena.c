@@ -352,12 +352,14 @@ ptmalloc_init (void)
   int ret;
   unsigned long *ptr = (unsigned long*)(&meta);
   ret = phx_get_meta(ptr, &len);
+  fprintf(stderr, "ret = %d\n", ret);
   fprintf(stderr, "Finish phx_get_meta\n");
   fprintf(stderr, "bin size = %u\n", NBINS*2-2);
   //fprintf(stderr, "meta's = %p, with fd ptr = %p\n", meta.main_arena.bins[0], meta.main_arena.bins[0]->fd);
   fprintf(stderr, "meta last's %p\n", meta.main_arena.bins[NBINS*2-3]);
   //fprintf(stderr, "meta middle's %p, fd ptr = %p\n", meta.main_arena.bins[40], meta.main_arena.bins[0]->fd);
   malloc_init_state (&main_arena);
+  fprintf(stderr, "sbrk = %p", (void *)MORECORE(0));
   fprintf(stderr, "Main arena initialized\n");
 #if HAVE_TUNABLES
   TUNABLE_GET (top_pad, size_t, TUNABLE_CALLBACK (set_top_pad));
@@ -448,7 +450,13 @@ ptmalloc_init (void)
     static_memcpy (&meta);
     fprintf(stderr, "halfway done, false_next = %p\n", meta.false_next);
     malloc_recover_meta (meta.false_next);
+    // Recover the end of the main arena
+    fprintf(stderr, "Manual update the end of the main arena, ma size = %ld\n", ma_size);
+    int size = ALIGN_UP (ma_size, GLRO(dl_pagesize));
+    void * newbreak = MORECORE(size);
+    fprintf(stderr, "new break = %p, MORECORE = %p\n", newbreak, MORECORE(0));
   }
+  fprintf(stderr, "recovered sbrk = %p", (void *)MORECORE(0));
   fprintf(stderr, "finish recovering meta\n");
   fprintf(stderr, "recovered main arena addr = %p\n", &main_arena);
   fprintf(stderr, "main arena's bins addr = %p\n", main_arena.bins[0]);
@@ -1063,6 +1071,8 @@ static void static_memcpy(struct phx_malloc_meta *meta) {
   #if IS_IN (libc)
   memcpy(&narenas, &meta->narenas, sizeof(size_t));
   #endif
+  memcpy(&list_cache, &meta->list_cache, sizeof(unsigned long));
+  memcpy(&ma_size, &meta->ma_size, sizeof(size_t));
   // memcpy(&next_to_use, meta->next_to_use, sizeof(mstate));
   // memcpy(&may_shrink_heap, meta->may_shrink_heap, sizeof(int));
 }

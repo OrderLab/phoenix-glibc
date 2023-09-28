@@ -25,10 +25,11 @@ __glibc_morecore (ptrdiff_t increment)
 {
   if (__always_fail_morecore)
     return NULL;
-
+  
   void *result = (void *) __sbrk (increment);
-  if (result == (void *) -1)
+  if (result == (void *) -1){
     return NULL;
+  }
 
   return result;
 }
