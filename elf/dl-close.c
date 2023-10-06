@@ -779,9 +779,3 @@ _dl_close (void *_map)
 
   __rtld_lock_unlock_recursive (GL(dl_load_lock));
 }
-
-
-void*
-_dl_phx_get_ranges(void) {
-  return GL(dl_ns)[LM_ID_BASE]._ns_loaded->phx_ranges;
-}

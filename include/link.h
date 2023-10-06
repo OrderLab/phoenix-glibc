@@ -346,11 +346,6 @@ struct link_map
     ElfW(Addr) l_relro_addr;
     size_t l_relro_size;
 
-    struct phx_range {
-        Elf64_Addr start, length;
-        struct phx_range *next;
-    } *phx_ranges;
-
     unsigned long long int l_serial;
   };
 

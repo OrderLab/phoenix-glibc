@@ -18,6 +18,8 @@
    <https://www.gnu.org/licenses/>.  */
 
 #include <dl-load.h>
+// #include <stdlib.h>
+#include <ldsodefs.h>
 
 /* Map a segment and align it properly.  */
 
@@ -78,7 +80,38 @@ _dl_map_segments (struct link_map *l, int fd,
                   const size_t maplength, bool has_holes,
                   struct link_map *loader)
 {
+#if 0
+  #define __dprintf(fmt, ...) do { } while (0)
+#else
+  #define __dprintf(fmt, ...) do { _dl_error_printf("dlphx: " fmt, ##__VA_ARGS__); } while (0)
+#endif
+  struct phx_range skip_ranges[64];
+  unsigned int phx_len = 64;
+
+  phx_get_skipped(skip_ranges, &phx_len);
+  __dprintf("phx_len = %u\n", phx_len);
+  __dprintf("link name = %s\n", l->l_name);
+  __dprintf("initial link addr = %lx\n", l->l_addr);
+  __dprintf("link type is DYN = %d\n", type == ET_DYN);
+
+  const struct saved_link_map *oldmap = phx_get_saved_map();
+
   const struct loadcmd *c = loadcmds;
+
+  if (oldmap) {
+    for (unsigned int i = 0; i < oldmap->count; ++i) {
+      if (oldmap->links[i].filename && l->l_name
+              && !strcmp(oldmap->links[i].filename, l->l_name)) {
+        l->l_map_start = oldmap->links[i].map_start;
+        l->l_map_end = l->l_map_start + maplength;
+        l->l_addr = l->l_map_start - c->mapstart;
+        l->l_contiguous = !has_holes;
+        __dprintf("found link name %s, start addr = %lx\n", l->l_name, l->l_map_start);
+        goto phx_map;
+      }
+    }
+    __dprintf("skip not found\n");
+  }
 
   if (__glibc_likely (type == ET_DYN))
     {
@@ -132,16 +165,69 @@ _dl_map_segments (struct link_map *l, int fd,
   l->l_map_end = l->l_map_start + maplength;
   l->l_contiguous = !has_holes;
 
+phx_map:
+
   while (c < &loadcmds[nloadcmds])
     {
-      if (c->mapend > c->mapstart
+      if (c->mapend > c->mapstart) {
           /* Map the segment contents from the file.  */
-          && (__mmap ((void *) (l->l_addr + c->mapstart),
+
+        /* if (__mmap ((void *) (l->l_addr + c->mapstart),
                       c->mapend - c->mapstart, c->prot,
                       MAP_FIXED|MAP_COPY|MAP_FILE,
                       fd, c->mapoff)
-              == MAP_FAILED))
-        return DL_MAP_SEGMENTS_ERROR_MAP_SEGMENT;
+              == MAP_FAILED) */
+
+        struct phx_range subranges[phx_len + 1];
+        size_t subrange_cnt = 0;
+
+        ElfW(Addr) cmd_start = l->l_addr + c->mapstart;
+        ElfW(Addr) cmd_end = l->l_addr + c->mapend;
+
+        __dprintf("cmd start = %lx, end=%lx\n", cmd_start, cmd_end);
+
+        // FIXME: non page-aligned subrange
+        // TODO: assumption: ranges given by kernel does not overlap
+
+        for (size_t i = 0; i < phx_len; ++i) {
+          unsigned long skip_start = skip_ranges[i].start;
+          unsigned long skip_end = skip_start + skip_ranges[i].length;
+          __dprintf("skip start = %lx, end=%lx\n", skip_start, skip_end);
+
+          /* Skip skip_range with no intersection */
+          if (!(cmd_start < skip_end && skip_start < cmd_end)) {
+            __dprintf("skip range do not intersect with cmd range\n");
+            continue;
+          }
+          __dprintf("skip range has intersection with cmd range\n");
+          /* The intersection start is within the cmd range, then there is a
+           * chunk of splitted range that still need to be loaded. */
+          if (cmd_start <= skip_start) {
+            subranges[subrange_cnt++] =
+              (struct phx_range) { cmd_start, skip_start - cmd_start };
+            __dprintf("add cut range %lx size %lx\n",
+                    subranges[subrange_cnt-1].start, subranges[subrange_cnt-1].length);
+          }
+          /* Eat the skipped part from the cmd range */
+          cmd_start = skip_end;
+          __dprintf("update cmd_start to %lx\n", cmd_start);
+        }
+        /* Add the remaining chunk if exists */
+        if (cmd_start < cmd_end)
+          subranges[subrange_cnt++] =
+            (struct phx_range) { cmd_start, cmd_end - cmd_start };
+        __dprintf("add last range %lx size %lx\n",
+                subranges[subrange_cnt-1].start, subranges[subrange_cnt-1].length);
+
+        for (size_t i = 0; i < subrange_cnt; ++i) {
+          if (__mmap ((void *) (subranges[i].start),
+                      subranges[i].length, c->prot,
+                      MAP_FIXED|MAP_COPY|MAP_FILE,
+                      fd, c->mapoff)
+                  == MAP_FAILED)
+            return DL_MAP_SEGMENTS_ERROR_MAP_SEGMENT;
+        }
+      }
 
     postmap:
       _dl_postprocess_loadcmd (l, header, c);
@@ -200,3 +286,4 @@ _dl_map_segments (struct link_map *l, int fd,
 
   return NULL;
 }
+#undef __dprintf

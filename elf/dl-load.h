@@ -78,7 +78,6 @@ struct loadcmd
   ElfW(Addr) mapstart, mapend, dataend, allocend, mapalign;
   ElfW(Off) mapoff;
   int prot;                             /* PROT_* bits.  */
-  int is_phx:1;
 };
 
 
@@ -99,14 +98,6 @@ _dl_postprocess_loadcmd (struct link_map *l, const ElfW(Ehdr) *header,
     /* Found the program header in this segment.  */
     l->l_phdr = (void *) (uintptr_t) (c->mapstart + header->e_phoff
                                       - c->mapoff);
-
-  if (c->is_phx) {
-    struct phx_range *new = (struct phx_range *)malloc(sizeof(struct phx_range));
-    new->next = l->phx_ranges;
-    new->start = l->l_addr + c->mapstart;
-    new->length = c->mapend - c->mapstart;
-    l->phx_ranges = new;
-  }
 }
 
 

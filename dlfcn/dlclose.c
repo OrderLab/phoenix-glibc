@@ -35,13 +35,3 @@ versioned_symbol (libc, __dlclose, dlclose, GLIBC_2_34);
 #if OTHER_SHLIB_COMPAT (libdl, GLIBC_2_0, GLIBC_2_34)
 compat_symbol (libdl, __dlclose, dlclose, GLIBC_2_0);
 #endif
-
-/* __attribute__ ((visibility ("default"))) */
-void *
-__phx_get_ranges(void) {
-  /* extern void * _dl_phx_get_ranges(void); */
-  /* return _dl_phx_get_ranges(); */
-  return GL(dl_ns)[LM_ID_BASE]._ns_loaded->phx_ranges;
-}
-
-versioned_symbol (libc, __phx_get_ranges, phx_get_ranges, GLIBC_2_34);

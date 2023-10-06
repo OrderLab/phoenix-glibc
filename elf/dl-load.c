@@ -32,6 +32,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <gnu/lib-names.h>
+#include <shlib-compat.h>
+#include <sys/syscall.h>
 
 /* Type for the buffer we put the ELF header and hopefully the program
    header.  This buffer does not really have to be too large.  In most
@@ -1180,7 +1182,6 @@ _dl_map_object_from_fd (const char *name, const char *origname, int fd,
 	  if (ph->p_flags & PF_X)
 	    c->prot |= PROT_EXEC;
 #endif
-          c->is_phx = ph->p_align == 0x2000;
 	  break;
 
 	case PT_TLS:
@@ -2358,4 +2359,292 @@ _dl_rtld_di_serinfo (struct link_map *loader, Dl_serinfo *si, bool counting)
     /* Count the struct size before the string area, which we didn't
        know before we completed dls_cnt.  */
     si->dls_size += (char *) &si->dls_serpath[si->dls_cnt] - (char *) si;
+}
+
+struct phx_range_array {
+  struct phx_range *ranges;
+  size_t len, cap;
+};
+
+/* Return 0 as success, -1 as fail */
+static inline int push_range(struct phx_range_array *array,
+    ElfW(Addr) start, ElfW(Off) length)
+{
+#define INIT_SIZE 16
+  if (array->ranges == NULL) {
+    array->ranges = malloc(INIT_SIZE * sizeof(struct phx_range));
+    if (array->ranges == NULL)
+      return -1;
+    array->cap = INIT_SIZE;
+  }
+#undef INIT_SIZE
+  if (array->len == array->cap) {
+    size_t newsize = array->cap * 2;
+    struct phx_range *newranges = realloc(array->ranges, newsize * sizeof(struct phx_range));
+    if (newranges)
+      return -1;
+    // commit only if successful
+    array->ranges = newranges;
+    array->cap = newsize;
+  }
+
+  array->ranges[array->len++] = (struct phx_range) { start, length };
+
+  return 0;
+}
+
+extern struct phx_range *__phx_get_ranges(size_t *len);
+
+#if 1
+#define dprintf(fmt, ...) \
+  do { _dl_error_printf("dlphx:" fmt, ##__VA_ARGS__); } while (0)
+#else
+#define dprintf(...) do {} while (0)
+#endif
+
+/* Collect phx sections for one object */
+static int phx_get_ranges_one(struct phx_range_array *array, struct link_map *l,
+        const char *override_name)
+{
+  struct __stat64_t64 st;
+  int ret = -1;
+
+  int fd = __open64_nocancel(override_name ?: l->l_name, O_RDONLY | O_CLOEXEC);
+  dprintf("obj name %s fd %d\n", l->l_name, fd);
+  if (fd == -1)
+    return ret;
+
+  if (__fstat64_time64(fd, &st) != 0)
+    goto close_fd;
+
+  size_t size = ALIGN_UP(st.st_size, GLRO(dl_pagesize));
+  dprintf("size 0x%lx\n", (size_t)size);
+
+  uint8_t *map = __mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+  dprintf("map 0x%lx\n", (size_t)map);
+  if (map == MAP_FAILED)
+    goto close_fd;
+
+  /* ELF header */
+  ElfW(Ehdr) *eh = (ElfW(Ehdr)*)map;
+  dprintf("eh 0x%lx\n", (size_t)eh);
+  if (eh->e_shstrndx == SHN_UNDEF)
+    goto unmap;
+  if (eh->e_shentsize != sizeof(ElfW(Shdr)))
+    goto unmap;
+
+  /* Pointer to section header array. Array length is eh->e_shnum. */
+  ElfW(Shdr) *shtab = (ElfW(Shdr)*)(map + eh->e_shoff);
+  dprintf("shtab 0x%lx\n", (size_t)shtab);
+
+  /* Section header string table (base ptr) */
+  char *shstrtab = (char*)(map + shtab[eh->e_shstrndx].sh_offset);
+  dprintf("shstrtab 0x%lx\n", (size_t)shstrtab);
+
+  for (Elf32_Half idx = 0; idx < eh->e_shnum; ++idx) {
+    ElfW(Shdr) *section = shtab + idx;
+    char *name = shstrtab + section->sh_name;
+    //dprintf("section %d name %s\n", idx, name);
+
+#define PHX_SEC_PREFIX ".phx."
+    if (strncmp(name, ".phx.", sizeof(PHX_SEC_PREFIX) - 1) != 0)
+      continue;
+#undef PHX_SEC_PREFIX
+    dprintf("section %d name %s\n", idx, name);
+
+    ElfW(Addr) start = l->l_addr + section->sh_addr;
+    ElfW(Off) length = section->sh_size;
+
+    if (push_range(array, start, length) != 0)
+      goto unmap;
+  }
+
+  ret = 0;
+
+unmap:
+  __munmap(map, size);
+close_fd:
+  __close_nocancel(fd);
+  return ret;
+}
+
+#define ALIGN32(x) (((x) & ~0x1fU) + 32)
+
+static struct saved_link_map *map_create(unsigned int nmaps) {
+    struct saved_link_map *map = __mmap(NULL, PAGE_SIZE, PROT_READ|PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map == MAP_FAILED)
+        return NULL;
+    map->count = 0;
+    map->cap = nmaps;
+    map->bytes_allocated = ALIGN32(sizeof(struct saved_link_map)
+        + sizeof(struct saved_link) * nmaps);
+    return map;
+}
+
+static int saved_map_push(struct saved_link_map *map,
+        struct link_map *l, const char *override_name)
+{
+    if (map->count == map->cap)
+        return -1;
+    const char *filename = override_name ?: l->l_real->l_name;
+    size_t len = strlen(filename);
+    if (len + 1 > PAGE_SIZE - map->bytes_allocated)
+        return -1;
+
+    char *copystr = strcpy((char*)map + map->bytes_allocated, filename);
+    map->bytes_allocated += len + 1;
+
+    map->links[map->count++] = (struct saved_link) {
+        .filename = (const char*)copystr,
+        .map_start = l->l_real->l_map_start,
+    };
+    return 0;
+}
+
+// TODO: move this into another phx header file
+#define SYS_PHX_PRESERVE_LMAP 453
+#define SYS_PHX_GET_LMAP 454
+
+// TODO: add return error instead of NULL
+struct phx_range *__phx_get_ranges(size_t *len)
+{
+  if (len == NULL)
+    return NULL;
+  /* Set 0 initially */
+  *len = 0;
+
+  struct phx_range_array array = { NULL, 0, 0, };
+
+  // TODO: merge this into a generic metadata storage method
+  struct saved_link_map *map = map_create(GL(dl_ns)[LM_ID_BASE]._ns_nloaded);
+  if (!map)
+    return NULL;
+
+  struct link_map *l = GL(dl_ns)[LM_ID_BASE]._ns_loaded;
+  for (unsigned int i = 0; i < GL(dl_ns)[LM_ID_BASE]._ns_nloaded; ++i, l = l->l_next) {
+    if (phx_get_ranges_one(&array, l->l_real, NULL) != 0) {
+      // try again if self path does not exist
+      if (l == GL(dl_ns)[LM_ID_BASE]._ns_loaded) {
+        if (phx_get_ranges_one(&array, l->l_real, "/proc/self/exe") == 0)
+          saved_map_push(map, l->l_real, "/proc/self/exe");
+      }
+      // TODO: error signal?
+    } else {
+      // TODO: check this return
+      saved_map_push(map, l->l_real, NULL);
+    }
+  }
+
+  // TODO: check this return
+  push_range(&array, (unsigned long)map, PAGE_SIZE);
+
+  syscall(SYS_PHX_PRESERVE_LMAP, map);
+
+  *len = array.len;
+  return array.ranges;
+}
+
+versioned_symbol (libc, __phx_get_ranges, phx_get_ranges, GLIBC_2_34);
+
+/* static int phx_range_cmp(const void *_lhs, const void *_rhs)
+{
+  const struct phx_range *lhs = _lhs;
+  const struct phx_range *rhs = _rhs;
+  if (lhs->start < rhs->start)
+    return -1;
+  else if (lhs->start > rhs->start)
+    return 1;
+  else
+    return 0;
+} */
+
+#define SYS_PHX_GET_PRESERVED 450
+#define PHX_PRESERVE_LIMIT 64
+
+static void swap(struct phx_range *a, struct phx_range *b)
+{
+    struct phx_range tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+static int partition(struct phx_range arr[], int low, int high)
+{
+    unsigned long pivot = arr[high].start;
+    int i = (low - 1);
+    for (int j = low; j <= high - 1; j++) {
+        if (arr[j].start < pivot) {
+            i++;
+            swap(&arr[i], &arr[j]);
+        }
+    }
+    swap(&arr[i + 1], &arr[high]);
+    return (i + 1);
+}
+
+// TODO: change this to standard qsort but fix linking error
+// [low, high] inclusive
+static void quickSort(struct phx_range arr[], int low, int high)
+{
+    if (low < high) {
+        int pi = partition(arr, low, high);
+        quickSort(arr, low, pi - 1);
+        quickSort(arr, pi + 1, high);
+    }
+}
+
+/* void phx_get_preserved(void **data, void **start, void **end) {
+  syscall(SYS_PHX_GET_PRESERVED, data, start, end);
+} */
+
+// FIXME: change this API in glibc, phx, and kernel: struct range,
+// return value, check user pointer
+void phx_get_skipped(struct phx_range skip_ranges[], unsigned int *retlen)
+{
+  if (!retlen || *retlen > PHX_PRESERVE_LIMIT) {
+    dprintf("phx_get_skipped: invalid capacity %u\n", retlen ? *retlen : 0);
+    return;
+  }
+
+  unsigned long start_arr[*retlen];
+  unsigned long end_arr[*retlen];
+  unsigned long *start_arr_ptr_hack = start_arr, *end_arr_ptr_hack = end_arr;
+  unsigned int len;
+  int ret = 0;
+  void *data;
+  // FIXME: use size_t instead of int
+
+  ret = syscall(SYS_PHX_GET_PRESERVED, &data, &start_arr_ptr_hack, &end_arr_ptr_hack, &len);
+  dprintf("phx_get_skipped: syscall ret=%d\n", ret);
+  dprintf("phx_get_skipped: syscall get len %d\n", len);
+  *retlen = len;
+  (void)ret;
+
+  /*
+  if (ret)
+    dprintf("phx_get_preserved_multi did not copy enough data.\n");
+  dprintf("phx_get_preserved_multi got data=%p, start=%p, end=%p, with len=%d.\n",
+      *data, *start_arr, *end_arr, *len);
+  if (*start_arr != NULL && *end_arr != NULL && *len > 0)
+    dprintf("with actual data: data0=%lx, start=%lu, end=%lu.\n",
+        (size_t)*data, *(unsigned long *)*start_arr, *(unsigned long *)*end_arr);
+  */
+
+  if (len == 0)
+    return;
+  for (size_t i = 0; i < len; ++i) {
+    skip_ranges[i].start = start_arr[i];
+    skip_ranges[i].length = end_arr[i] - start_arr[i];
+    dprintf("phx_get_skipped: skip_ranges[%lu] start %lx size %lx\n",
+            i, skip_ranges[i].start, skip_ranges[i].length);
+  }
+  // qsort(skip_ranges, len, sizeof(struct phx_range), phx_range_cmp);
+  quickSort(skip_ranges, 0, len-1);
+}
+
+const struct saved_link_map *phx_get_saved_map(void) {
+  void *ptr;
+  syscall(SYS_PHX_GET_LMAP, &ptr);
+  return ptr;
 }

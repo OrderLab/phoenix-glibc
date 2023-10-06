@@ -1424,6 +1424,29 @@ void __rtld_libc_freeres (void) attribute_hidden;
 void __thread_gscope_wait (void) attribute_hidden;
 # define THREAD_GSCOPE_WAIT() __thread_gscope_wait ()
 
+struct phx_range {
+    /* Elf64_Addr */
+    ElfW(Addr) start;
+    ElfW(Off) length;
+};
+
+void phx_get_skipped(struct phx_range skip_ranges[], unsigned int *outlen);
+
+struct saved_link {
+    const char *filename;
+    unsigned long map_start;
+};
+
+// Preserved data structure, starting at one page, remaining bytes
+// used for copied strings.
+struct saved_link_map {
+    unsigned int count, cap;
+    unsigned int bytes_allocated;
+    struct saved_link links[];
+};
+
+const struct saved_link_map *phx_get_saved_map(void);
+
 __END_DECLS
 
 #endif /* ldsodefs.h */

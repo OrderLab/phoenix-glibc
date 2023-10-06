@@ -59,8 +59,6 @@ extern void *dlopen (const char *__file, int __mode) __THROWNL;
    The handle cannot be used again after calling `dlclose'.  */
 extern int dlclose (void *__handle) __THROWNL __nonnull ((1));
 
-extern void *phx_get_ranges(void) __THROW;
-
 /* Find the run-time address in the shared object HANDLE refers to
    of the symbol called NAME.  */
 extern void *dlsym (void *__restrict __handle,

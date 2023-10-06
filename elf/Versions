@@ -54,6 +54,7 @@ ld {
   }
   GLIBC_2.34 {
     __rtld_version_placeholder;
+    phx_get_ranges;
   }
   GLIBC_PRIVATE {
     # Those are in the dynamic linker, but used by libc.so.
