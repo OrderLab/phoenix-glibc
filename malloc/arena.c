@@ -318,7 +318,8 @@ ptmalloc_init (void)
   tcache_key_initialize ();
 #endif
 
-  list_cache = (allocator_info **) MMAP (0, mp_.n_mmaps_max * sizeof(allocator_info *), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  // FIXME: 100 should be substituted later
+  // list_cache = (allocator_info **) MMAP (0, 100 * sizeof(allocator_info *), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
 
 #ifdef USE_MTAG
   if ((TUNABLE_GET_FULL (glibc, mem, tagging, int32_t, NULL) & 1) != 0)
@@ -1071,7 +1072,8 @@ static void static_memcpy(struct phx_malloc_meta *meta) {
   #if IS_IN (libc)
   memcpy(&narenas, &meta->narenas, sizeof(size_t));
   #endif
-  memcpy(&list_cache, &meta->list_cache, sizeof(unsigned long));
+  memcpy(&list_cache, &meta->list_cache, sizeof(list_cache));
+  fprintf(stderr, "Check list_cache whose addr = %p, try to access %p, meta's addr = %p,  %p\n", &list_cache, &list_cache[0], &meta->list_cache, &meta->list_cache[0]);
   memcpy(&ma_size, &meta->ma_size, sizeof(size_t));
   // memcpy(&next_to_use, meta->next_to_use, sizeof(mstate));
   // memcpy(&may_shrink_heap, meta->may_shrink_heap, sizeof(int));

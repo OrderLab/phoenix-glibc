@@ -1959,7 +1959,7 @@ struct phx_malloc_meta {
   // mstate next_to_use;
   // int *may_shrink_heap;
   struct malloc_state *false_next;
-  allocator_info ** list_cache;
+  allocator_info list_cache[15];
   size_t ma_size;
 };
 
@@ -2061,7 +2061,7 @@ madvise_thp (void *p, INTERNAL_SIZE_T size)
 static void
 malloc_recover_meta (struct malloc_state *false_next);
 
-static allocator_info **list_cache = NULL;
+static allocator_info list_cache[15];
 
 /* ------------------- Support for multiple arenas -------------------- */
 #include "arena.c"
@@ -2127,7 +2127,9 @@ phx_get_malloc_meta (struct phx_malloc_meta *meta)
   memcpy (&meta->narenas, &narenas, sizeof (size_t));
   #endif
   meta->false_next = &main_arena;
-  memcpy (&meta->list_cache, &list_cache, sizeof (unsigned long));
+  fprintf(stderr, "%p, %p\n", list_cache[0].start, list_cache[0].end);
+  memcpy (&meta->list_cache, &list_cache, sizeof (list_cache));
+  fprintf(stderr, "Store list_cache in meta whose addr = %p, meta addr %p, access &meta->list_cache[0] %p, start %p end %p\n", &list_cache, meta->list_cache, &meta->list_cache[0], meta->list_cache[0].start, meta->list_cache[0].end);
   memcpy (&meta->ma_size, &ma_size, sizeof (size_t));
 }
 
@@ -2535,10 +2537,11 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
   if (mm == MAP_FAILED)
     return mm;
  
-  list_cache[mp_.n_mmaps] = (allocator_info *) MMAP (0, sizeof(allocator_info), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  fprintf(stderr, "Create list_cache whose addr = %p\n", &list_cache[mp_.n_mmaps]);
-  list_cache[mp_.n_mmaps]->start = (void *)mm;
-  list_cache[mp_.n_mmaps]->end = (void *)(mm + size);
+  //list_cache[mp_.n_mmaps] = (allocator_info *) MMAP (0, sizeof(allocator_info), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  fprintf(stderr, "Create list_cache, &list_cache[nmmaps] = %p\n", &list_cache[mp_.n_mmaps]);
+  list_cache[mp_.n_mmaps].start = (void *)mm;
+  list_cache[mp_.n_mmaps].end = (void *)(mm + size);
+  fprintf(stderr, "start %p end %p \n", list_cache[mp_.n_mmaps].start, list_cache[mp_.n_mmaps].end);
 
   printf ("malloc done:\n");
 
@@ -3769,7 +3772,7 @@ __libc_phx_get_malloc_ranges (void)
   /* Get ranges from large allocation list */
   for (int i = 0; i < mp_.n_mmaps; i++) { 
     fprintf(stderr, "mp_.n_mmaps = %d\n", mp_.n_mmaps);
-    allocator_list[i] = list_cache[i];
+    allocator_list[i] = &list_cache[i];
   }
 
   /* Main Arena */
