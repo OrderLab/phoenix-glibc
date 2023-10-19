@@ -1073,6 +1073,7 @@ static void static_memcpy(struct phx_malloc_meta *meta) {
   memcpy(&narenas, &meta->narenas, sizeof(size_t));
   #endif
   memcpy(&list_cache, &meta->list_cache, sizeof(list_cache));
+  memcpy(&cache_size, &meta->cache_size, sizeof(int));
   fprintf(stderr, "Check list_cache whose addr = %p, try to access %p, meta's addr = %p,  %p\n", &list_cache, &list_cache[0], &meta->list_cache, &meta->list_cache[0]);
   memcpy(&ma_size, &meta->ma_size, sizeof(size_t));
   // memcpy(&next_to_use, meta->next_to_use, sizeof(mstate));
