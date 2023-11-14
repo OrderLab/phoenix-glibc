@@ -1964,7 +1964,7 @@ struct phx_malloc_meta {
   // mstate next_to_use;
   // int *may_shrink_heap;
   struct malloc_state *false_next;
-  allocator_info list_cache[15];
+  allocator_info list_cache[128];
   int cache_size;
   size_t ma_size;
 };
@@ -2067,7 +2067,7 @@ madvise_thp (void *p, INTERNAL_SIZE_T size)
 static void
 malloc_recover_meta (struct malloc_state *false_next);
 
-static allocator_info list_cache[15];
+static allocator_info list_cache[128];
 static int cache_size = 0;
 
 /* ------------------- Support for multiple arenas -------------------- */
@@ -3181,7 +3181,7 @@ munmap_chunk (mchunkptr p)
   __munmap ((char *) block, total_size);
 
   /* Update the list_cache */
-  for (int i = 0; i < 15; i++) {
+  for (int i = 0; i < 128; i++) {
     if (i == cache_size) 
       break;
     void *ptr = (void *)block;
