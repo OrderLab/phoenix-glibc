@@ -2395,7 +2395,7 @@ static inline int push_range(struct phx_range_array *array,
 
 extern struct phx_range *__phx_get_ranges(size_t *len);
 
-#if 1
+#if 0
 #define dprintf(fmt, ...) \
   do { _dl_error_printf("dlphx:" fmt, ##__VA_ARGS__); } while (0)
 #else

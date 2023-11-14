@@ -80,7 +80,7 @@ _dl_map_segments (struct link_map *l, int fd,
                   const size_t maplength, bool has_holes,
                   struct link_map *loader)
 {
-#if 0
+#if 1
   #define __dprintf(fmt, ...) do { } while (0)
 #else
   #define __dprintf(fmt, ...) do { _dl_error_printf("dlphx: " fmt, ##__VA_ARGS__); } while (0)

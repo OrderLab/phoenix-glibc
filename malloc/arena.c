@@ -23,6 +23,12 @@
 #endif
 #include <elf/dl-tunables.h>
 
+#if 1
+  #define __dprintf(fmt, ...) do { } while (0)
+#else
+  #define __dprintf(fmt, ...) do { fprintf(stderr, "phxalloc: " fmt, ##__VA_ARGS__); } while (0)
+#endif
+
 /* Compile-time constants.  */
 
 #define HEAP_MIN_SIZE (32 * 1024)
@@ -349,19 +355,19 @@ ptmalloc_init (void)
   // Try to restart with previous meta
   struct phx_malloc_meta meta;
   unsigned int len = sizeof(meta) / sizeof (unsigned long);
-  fprintf(stderr, "Before phx get meta, len = %u\n", len);
+  __dprintf("Before phx get meta, len = %u\n", len);
   int ret;
   unsigned long *ptr = (unsigned long*)(&meta);
   ret = phx_get_meta(ptr, &len);
-  fprintf(stderr, "ret = %d\n", ret);
-  fprintf(stderr, "Finish phx_get_meta\n");
-  fprintf(stderr, "bin size = %u\n", NBINS*2-2);
-  //fprintf(stderr, "meta's = %p, with fd ptr = %p\n", meta.main_arena.bins[0], meta.main_arena.bins[0]->fd);
-  fprintf(stderr, "meta last's %p\n", meta.main_arena.bins[NBINS*2-3]);
-  //fprintf(stderr, "meta middle's %p, fd ptr = %p\n", meta.main_arena.bins[40], meta.main_arena.bins[0]->fd);
+  __dprintf("ret = %d\n", ret);
+  __dprintf("Finish phx_get_meta\n");
+  __dprintf("bin size = %u\n", NBINS*2-2);
+  //__dprintf("meta's = %p, with fd ptr = %p\n", meta.main_arena.bins[0], meta.main_arena.bins[0]->fd);
+  __dprintf("meta last's %p\n", meta.main_arena.bins[NBINS*2-3]);
+  //__dprintf("meta middle's %p, fd ptr = %p\n", meta.main_arena.bins[40], meta.main_arena.bins[0]->fd);
   malloc_init_state (&main_arena);
-  fprintf(stderr, "sbrk = %p", (void *)MORECORE(0));
-  fprintf(stderr, "Main arena initialized\n");
+  __dprintf("sbrk = %p", (void *)MORECORE(0));
+  __dprintf("Main arena initialized\n");
 #if HAVE_TUNABLES
   TUNABLE_GET (top_pad, size_t, TUNABLE_CALLBACK (set_top_pad));
   TUNABLE_GET (perturb, int32_t, TUNABLE_CALLBACK (set_perturb_byte));
@@ -446,22 +452,23 @@ ptmalloc_init (void)
         }
     }
 #endif
-  fprintf(stderr, "about to recover meta\n");
+  __dprintf("about to recover meta\n");
   if (ret != 0){
     static_memcpy (&meta);
-    fprintf(stderr, "halfway done, false_next = %p\n", meta.false_next);
+    __dprintf("halfway done, false_next = %p\n", meta.false_next);
     malloc_recover_meta (meta.false_next);
     // Recover the end of the main arena
-    fprintf(stderr, "Manual update the end of the main arena, ma size = %ld\n", ma_size);
+    __dprintf("Manual update the end of the main arena, ma size = %ld\n", ma_size);
     int size = ALIGN_UP (ma_size, GLRO(dl_pagesize));
     void * newbreak = MORECORE(size);
-    fprintf(stderr, "new break = %p, MORECORE = %p\n", newbreak, MORECORE(0));
+    (void)newbreak;
+    __dprintf("new break = %p, MORECORE = %p\n", newbreak, MORECORE(0));
   }
-  fprintf(stderr, "recovered sbrk = %p", (void *)MORECORE(0));
-  fprintf(stderr, "finish recovering meta\n");
-  fprintf(stderr, "recovered main arena addr = %p\n", &main_arena);
-  fprintf(stderr, "main arena's bins addr = %p\n", main_arena.bins[0]);
-  fprintf(stderr, "mp's n_mmaps = %d\n", mp_.n_mmaps);
+  __dprintf("recovered sbrk = %p", (void *)MORECORE(0));
+  __dprintf("finish recovering meta\n");
+  __dprintf("recovered main arena addr = %p\n", &main_arena);
+  __dprintf("main arena's bins addr = %p\n", main_arena.bins[0]);
+  __dprintf("mp's n_mmaps = %d\n", mp_.n_mmaps);
 }
 
 /* Managing heaps and arenas (for concurrent threads) */
@@ -661,7 +668,7 @@ shrink_heap (heap_info *h, long diff)
     }
   else
     __madvise ((char *) h + new_size, diff, MADV_DONTNEED);
-  /*fprintf(stderr, "shrink %p %08lx\n", h, new_size);*/
+  /*__dprintf("shrink %p %08lx\n", h, new_size);*/
 
   h->size = new_size;
   LIBC_PROBE (memory_heap_less, 2, h, h->size);
@@ -1074,7 +1081,7 @@ static void static_memcpy(struct phx_malloc_meta *meta) {
   #endif
   memcpy(&list_cache, &meta->list_cache, sizeof(list_cache));
   memcpy(&cache_size, &meta->cache_size, sizeof(int));
-  fprintf(stderr, "Check list_cache whose addr = %p, try to access %p, meta's addr = %p,  %p\n", &list_cache, &list_cache[0], &meta->list_cache, &meta->list_cache[0]);
+  __dprintf("Check list_cache whose addr = %p, try to access %p, meta's addr = %p,  %p\n", &list_cache, &list_cache[0], &meta->list_cache, &meta->list_cache[0]);
   memcpy(&ma_size, &meta->ma_size, sizeof(size_t));
   // memcpy(&next_to_use, meta->next_to_use, sizeof(mstate));
   // memcpy(&may_shrink_heap, meta->may_shrink_heap, sizeof(int));
