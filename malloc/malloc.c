@@ -2036,7 +2036,7 @@ free_perturb (char *p, size_t n)
     memset (p, perturb_byte, n);
 }
 
-
+long long _gduration = 0;
 
 #include <stap-probe.h>
 
@@ -3852,7 +3852,7 @@ __libc_phx_get_malloc_ranges (void)
   for (int i = 0; i < count-1; i++)
   {
     __dprintf("raw: start addr = %p, node ptr = %p\n", &allocator_list[i], allocator_list[i]);
-    __dprintf("Start from %p, end at %p\n", allocator_list[i]->start, allocator_list[i]->end);
+    fprintf(stderr, "Start from %p, end at %p\n", allocator_list[i]->start, allocator_list[i]->end);
   }
   __dprintf("next raw: start addr = %p, node ptr = %p\n", &allocator_list[count-1], allocator_list[count-1]);
   __dprintf("list addr = %p\n", allocator_list);
@@ -6188,6 +6188,7 @@ weak_alias (__libc_mallinfo, mallinfo)
 strong_alias (__libc_mallinfo2, __mallinfo2)
 weak_alias (__libc_mallinfo2, mallinfo2)
 strong_alias (__libc_mallopt, __mallopt) weak_alias (__libc_mallopt, mallopt)
+//strong_alias (__libc__gduration, __gduration) weak_alias (__gduration, gduration)
 
 weak_alias (__malloc_stats, malloc_stats)
 weak_alias (__malloc_usable_size, malloc_usable_size)

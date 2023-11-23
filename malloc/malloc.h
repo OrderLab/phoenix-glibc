@@ -77,6 +77,8 @@ extern void *valloc (size_t __size) __THROW __attribute_malloc__
 extern void *pvalloc (size_t __size) __THROW __attribute_malloc__
   __wur __attr_dealloc_free;
 
+extern long long _gduration;
+
 /* Get the phx malloc ranges */
 extern void *phx_get_malloc_ranges (void) __THROW;
 

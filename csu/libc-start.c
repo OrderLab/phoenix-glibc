@@ -240,6 +240,8 @@ LIBC_START_MAIN (int (*main) (int, char **, char ** MAIN_AUXVEC_DECL),
 		 void (*fini) (void),
 		 void (*rtld_fini) (void), void *stack_end)
 {
+  phx_mode = 1;
+  ckpt("Libc start main");
 #ifndef SHARED
   char **ev = &argv[argc + 1];
 

@@ -536,6 +536,7 @@ GLIBC_2.2.5 _dl_mcount_wrapper_check F
 GLIBC_2.2.5 _environ D 0x8
 GLIBC_2.2.5 _exit F
 GLIBC_2.2.5 _flushlbf F
+GLIBC_2.2.5 _gduration D 0x8
 GLIBC_2.2.5 _libc_intl_domainname D 0x5
 GLIBC_2.2.5 _longjmp F
 GLIBC_2.2.5 _mcleanup F

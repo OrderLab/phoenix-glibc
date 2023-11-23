@@ -18,6 +18,8 @@
 
 #include <atomic.h>
 #include <pthreadP.h>
+#include <malloc/malloc.h>
+#include <ckpt.h>
 
 _Noreturn static void
 __libc_start_call_main (int (*main) (int, char **, char ** MAIN_AUXVEC_DECL),
@@ -53,6 +55,16 @@ __libc_start_call_main (int (*main) (int, char **, char ** MAIN_AUXVEC_DECL),
 
       /* Store the new cleanup handler info.  */
       THREAD_SETMEM (self, cleanup_jmp_buf, &unwind_buf);
+
+      ckpt("Done initialization");
+      phx_mode = 0;
+      fprintf(stderr, "cnt = %d\n", cnt);
+      ckpts[0].t = 0;
+      size_t i;
+      for (i = 1; i < cnt; i++) {
+	_gduration += ckpts[i].t - ckpts[i-1].t;
+      }
+      cnt = 0;
 
       /* Run the program.  */
       result = main (argc, argv, __environ MAIN_AUXVEC_PARAM);
