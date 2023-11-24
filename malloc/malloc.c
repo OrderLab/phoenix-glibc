@@ -3852,7 +3852,7 @@ __libc_phx_get_malloc_ranges (void)
   for (int i = 0; i < count-1; i++)
   {
     __dprintf("raw: start addr = %p, node ptr = %p\n", &allocator_list[i], allocator_list[i]);
-    fprintf(stderr, "Start from %p, end at %p\n", allocator_list[i]->start, allocator_list[i]->end);
+    __dprintf("Start from %p, end at %p\n", allocator_list[i]->start, allocator_list[i]->end);
   }
   __dprintf("next raw: start addr = %p, node ptr = %p\n", &allocator_list[count-1], allocator_list[count-1]);
   __dprintf("list addr = %p\n", allocator_list);

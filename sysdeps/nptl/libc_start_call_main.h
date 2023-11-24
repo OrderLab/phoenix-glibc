@@ -58,7 +58,7 @@ __libc_start_call_main (int (*main) (int, char **, char ** MAIN_AUXVEC_DECL),
 
       ckpt("Done initialization");
       phx_mode = 0;
-      fprintf(stderr, "cnt = %d\n", cnt);
+      //fprintf(stderr, "cnt = %d\n", cnt);
       ckpts[0].t = 0;
       size_t i;
       for (i = 1; i < cnt; i++) {
