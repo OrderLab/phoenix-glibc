@@ -1142,7 +1142,10 @@ struct malloc_chunk {
 
   /* Only used for large blocks: pointer to next larger size.  */
   struct malloc_chunk* fd_nextsize; /* double links -- used only if free. */
-  struct malloc_chunk* bk_nextsize;
+  struct malloc_chunk *bk_nextsize;
+
+  /* used or not, for varnish*/
+  int8_t used;
 };
 
 
@@ -3782,6 +3785,32 @@ __libc_valloc (size_t bytes)
 /* Mmap range info support */
 static allocator_info **allocator_list = NULL;
 
+void
+__libc_phx_marked_used (void *used_ptr)
+{
+  mchunkptr chunk_ptr = mem2chunk (used_ptr);
+  chunk_ptr->used = 1;
+}
+
+void
+__libc_phx_cleanup (void)
+{
+  struct malloc_state *cur_arena = &main_arena;
+  mchunkptr top_ptr = cur_arena->top;
+  mchunkptr cur_chunk_ptr = top_ptr;
+  mchunkptr next_ptr = cur_chunk_ptr->bk;
+  while (next_ptr!= top_ptr)
+  {
+      
+    if (!cur_chunk_ptr->used)
+	  {
+      __dprintf("free %p, actual malloc ptr: %p\n", cur_chunk_ptr, chunk2mem(cur_chunk_ptr));
+    }
+    cur_chunk_ptr = next_ptr;
+    next_ptr = cur_chunk_ptr->bk;
+  }
+}
+
 void *
 __libc_phx_get_malloc_ranges (void)
 {
@@ -6181,6 +6210,8 @@ weak_alias (__libc_memalign, memalign)
 strong_alias (__libc_realloc, __realloc) strong_alias (__libc_realloc, realloc)
 strong_alias (__libc_valloc, __valloc) weak_alias (__libc_valloc, valloc)
 strong_alias (__libc_phx_get_malloc_ranges, __phx_get_malloc_ranges) weak_alias (__libc_phx_get_malloc_ranges, phx_get_malloc_ranges)
+strong_alias (__libc_phx_marked_used, __phx_marked_used) weak_alias (__libc_phx_marked_used, phx_marked_used)
+strong_alias (__libc_phx_cleanup, __phx_cleanup) weak_alias (__libc_phx_cleanup, phx_cleanup)
 strong_alias (__libc_phx_malloc_preserve_meta, __phx_malloc_preserve_meta) weak_alias (__libc_phx_malloc_preserve_meta, phx_malloc_preserve_meta)
 strong_alias (__libc_pvalloc, __pvalloc) weak_alias (__libc_pvalloc, pvalloc)
 strong_alias (__libc_mallinfo, __mallinfo)
