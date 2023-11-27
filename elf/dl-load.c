@@ -2471,7 +2471,8 @@ close_fd:
 #define ALIGN32(x) (((x) & ~0x1fU) + 32)
 
 static struct saved_link_map *map_create(unsigned int nmaps) {
-    struct saved_link_map *map = __mmap(NULL, PAGE_SIZE, PROT_READ|PROT_WRITE,
+    // hack: sometimes one single page will be allocated in the gap of ld mapping itself
+    struct saved_link_map *map = __mmap(NULL, PAGE_SIZE * 4, PROT_READ|PROT_WRITE,
             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (map == MAP_FAILED)
         return NULL;
@@ -2537,7 +2538,7 @@ struct phx_range *__phx_get_ranges(size_t *len)
   }
 
   // TODO: check this return
-  push_range(&array, (unsigned long)map, PAGE_SIZE);
+  push_range(&array, (unsigned long)map, PAGE_SIZE * 4);
 
   syscall(SYS_PHX_PRESERVE_LMAP, map);
 
