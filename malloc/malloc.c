@@ -3182,63 +3182,38 @@ munmap_chunk (mchunkptr p)
 
   /* Update the list_cache */
   for (int i = 0; i < 128; i++) {
-    if (i == cache_size) 
+    if (i == cache_size)
       break;
     void *ptr = (void *)block;
-    if (ptr >= list_cache[i].start && ptr <= list_cache[i].end) {
-      void *trim_end = ptr + total_size;
-      __dprintf("end = %p\n", trim_end);
-      if (ptr == list_cache[i].start && trim_end == list_cache[i].end) {
-        __dprintf("delete whole previous range\n");
-        list_cache[i] = list_cache[cache_size - 1];
-        cache_size -= 1;
-      }
-      if (trim_end <= list_cache[i].end) {
-        if (trim_end == list_cache[i].end) {
-          list_cache[i].end = ptr;
-        }
-        else {
-          if (ptr == list_cache[i].start) {
-            list_cache[i].start = trim_end;
-          }
-          else {
-            cache_size += 1;
-            list_cache[cache_size - 1].start = trim_end;
-            list_cache[cache_size - 1].end = list_cache[i].end;
-            list_cache[i].end = ptr;
-          }
-        }
-      }
-      else {
-        /* According to the semantics, no else should happen here*/ 
-      }
+    void *trim_end = ptr + total_size;
+    __dprintf("end = %p\n", trim_end);
+
+    if (!(list_cache[i].start < trim_end && ptr < list_cache[i].end))
+      continue;
+
+    if (ptr <= list_cache[i].start && trim_end >= list_cache[i].end) {
+      __dprintf("delete whole previous range\n");
+      list_cache[i] = list_cache[cache_size - 1];
+      cache_size -= 1;
+      /* Retry the moved one */
+      --i;
+    } else if (list_cache[i].start < ptr && trim_end < list_cache[i].end) {
+      cache_size += 1;
+      list_cache[cache_size - 1].start = trim_end;
+      list_cache[cache_size - 1].end = list_cache[i].end;
+      list_cache[i].end = ptr;
+    } else if (list_cache[i].start < ptr) {
+      /* && trim_end >= list_cache[i].end */
+      list_cache[i].end = ptr;
+    } else {
+      /* ptr <= list_cache[i].start && trim_end < list_cache[i].end */
+      list_cache[i].start = trim_end;
     }
   }
-  __dprintf("munmap %p, size = %ld\n", (char *)block, total_size);
-
-  /*list_count -= 1;
-  allocator_info *cur_node = allocator_list;
-  allocator_info *prev = NULL;
-  while (1)
-  {
-    assert (cur_node != NULL);
-    if (cur_node->start == (void*)block && cur_node->length == total_size)
-    {
-      if (cur_node == allocator_list)
-        allocator_list = cur_node->next;
-      else
-      {
-        prev->next = cur_node->next;
-      }
-      __libc_free(cur_node);
-      break;
-    }
-    else
-    {
-      prev = cur_node;
-      cur_node = cur_node->next;
-    }
-  }*/
+  __dprintf("list_cache: munmap %p-%p, size = %ld\n", (char *)block, (char *)(block+total_size), total_size);
+  for (int i = 0; i < cache_size; i++) {
+    __dprintf("munmap: now list_cache[%d] start %p end %p\n", i, list_cache[i].start, list_cache[i].end);
+  }
 }
 
 #if HAVE_MREMAP
@@ -3246,9 +3221,14 @@ munmap_chunk (mchunkptr p)
 static mchunkptr
 mremap_chunk (mchunkptr p, size_t new_size)
 {
+  __dprintf("mremap_chunk...\n");
+  for (int i = 0; i < cache_size; i++) {
+    __dprintf("mremap start: list_cache[%d] start %p end %p\n", i, list_cache[i].start, list_cache[i].end);
+  }
   size_t pagesize = GLRO (dl_pagesize);
   INTERNAL_SIZE_T offset = prev_size (p);
   INTERNAL_SIZE_T size = chunksize (p);
+  __dprintf("mremap_chunk: p=%p, required new_size=0x%lx, offset=0x%lx, size=0x%lx\n", p, new_size, offset, size);
   char *cp;
 
   assert (chunk_is_mmapped (p));
@@ -3262,11 +3242,15 @@ mremap_chunk (mchunkptr p, size_t new_size)
 
   /* Note the extra SIZE_SZ overhead as in mmap_chunk(). */
   new_size = ALIGN_UP (new_size + offset + SIZE_SZ, pagesize);
+  __dprintf("mremap_chunk: block=0x%lx, mem=0x%lx, total_size=0x%lx, aligned new_size=0x%lx\n", block, mem, total_size, new_size);
 
   /* No need to remap if the number of pages does not change.  */
   if (total_size == new_size)
     return p;
 
+  void *old_start = (void *)block;
+  void *old_end = (void *)(block + total_size);
+  __dprintf("mremap_chunk: old chunk %p-%p\n", old_start, old_end);
   cp = (char *) __mremap ((char *) block, total_size, new_size,
                           MREMAP_MAYMOVE);
 
@@ -3281,11 +3265,36 @@ mremap_chunk (mchunkptr p, size_t new_size)
 
   assert (prev_size (p) == offset);
   set_head (p, (new_size - offset) | IS_MMAPPED);
+  void *new_start = (void *)cp;
+  void *new_end = (void *)(new_start + new_size);
+  __dprintf("mremap_chunk: new chunk %p-%p\n", new_start, new_end);
 
   INTERNAL_SIZE_T new;
   new = atomic_fetch_add_relaxed (&mp_.mmapped_mem, new_size - size - offset)
         + new_size - size - offset;
   atomic_max (&mp_.max_mmapped_mem, new);
+
+  /* Update the list_cache */
+  for (int i = 0; i < 128; i++) {
+    if (i == cache_size)
+      break;
+    // TODO: make sure old_start always == some list_cache[i].start
+    if (list_cache[i].start == old_start) {
+      __dprintf("mremap_chunk: remap list_cache[%d] (%p-%p) from %p-%p to new chunk %p-%p\n", 
+          i, list_cache[i].start, list_cache[i].end, old_start, old_end, new_start, new_end);
+      assert (list_cache[i].end == old_end);
+      list_cache[i].start = new_start;
+      list_cache[i].end = new_end;
+      break;
+    }
+  }
+  // assert no overlapping chunks
+  
+  atomic_fetch_add_relaxed (&mp_.mmapped_mem, new_size - total_size);
+  
+  for (int i = 0; i < cache_size; i++) {
+    __dprintf("mremap end: now list_cache[%d] start %p end %p\n", i, list_cache[i].start, list_cache[i].end);
+  }
   return p;
 }
 #endif /* HAVE_MREMAP */
