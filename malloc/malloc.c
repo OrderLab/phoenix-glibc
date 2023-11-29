@@ -2074,6 +2074,7 @@ malloc_recover_meta (struct malloc_state *false_next);
 
 static allocator_info list_cache[128];
 static int cache_size = 0;
+__libc_lock_define_initialized (static, list_cache_mutex);
 
 /* ------------------- Support for multiple arenas -------------------- */
 #include "arena.c"
@@ -2552,11 +2553,13 @@ sysmalloc_mmap (INTERNAL_SIZE_T nb, size_t pagesize, int extra_flags, mstate av)
     return mm;
 
   //list_cache[mp_.n_mmaps] = (allocator_info *) MMAP (0, sizeof(allocator_info), mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
-  __dprintf("Create list_cache, &list_cache[nmmaps] = %p\n", &list_cache[mp_.n_mmaps]);
-  list_cache[mp_.n_mmaps].start = (void *)mm;
-  list_cache[mp_.n_mmaps].end = (void *)(mm + size);
-  cache_size = cache_size + 1;
-  __dprintf("start %p end %p \n", list_cache[mp_.n_mmaps].start, list_cache[mp_.n_mmaps].end);
+  __dprintf("Create list_cache, &list_cache[nmmaps] = %p\n", &list_cache[cache_size]);
+  __libc_lock_lock(list_cache_mutex);
+  list_cache[cache_size].start = (void *)mm;
+  list_cache[cache_size].end = (void *)(mm + size);
+  cache_size++;
+  __libc_lock_unlock(list_cache_mutex);
+  __dprintf("start %p end %p \n", list_cache[cache_size-1].start, list_cache[cache_size-1].end);
 
   __dprintf("malloc done:\n");
 
@@ -3186,6 +3189,7 @@ munmap_chunk (mchunkptr p)
   __munmap ((char *) block, total_size);
 
   /* Update the list_cache */
+  __libc_lock_lock(list_cache_mutex);
   for (int i = 0; i < 128; i++) {
     if (i == cache_size)
       break;
@@ -3215,6 +3219,7 @@ munmap_chunk (mchunkptr p)
       list_cache[i].start = trim_end;
     }
   }
+  __libc_lock_unlock(list_cache_mutex);
   __dprintf("list_cache: munmap %p-%p, size = %ld\n", (char *)block, (char *)(block+total_size), total_size);
   for (int i = 0; i < cache_size; i++) {
     __dprintf("munmap: now list_cache[%d] start %p end %p\n", i, list_cache[i].start, list_cache[i].end);
@@ -3279,6 +3284,7 @@ mremap_chunk (mchunkptr p, size_t new_size)
         + new_size - size - offset;
   atomic_max (&mp_.max_mmapped_mem, new);
 
+  __libc_lock_lock(list_cache_mutex);
   /* Update the list_cache */
   for (int i = 0; i < 128; i++) {
     if (i == cache_size)
@@ -3293,6 +3299,7 @@ mremap_chunk (mchunkptr p, size_t new_size)
       break;
     }
   }
+  __libc_lock_unlock(list_cache_mutex);
   // assert no overlapping chunks
   
   atomic_fetch_add_relaxed (&mp_.mmapped_mem, new_size - total_size);
