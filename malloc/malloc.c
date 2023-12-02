@@ -284,7 +284,7 @@
   or other mallocs available that do this.
 */
 
-#if 1
+#if 0
   #define __dprintf(fmt, ...) do { } while (0)
 #else
   #define __dprintf(fmt, ...) do { fprintf(stderr, "phxalloc: " fmt, ##__VA_ARGS__); } while (0)
@@ -3803,31 +3803,37 @@ __libc_phx_cleanup (void)
   mchunkptr base_chunk = (mchunkptr) mp_.sbrk_base;
   cur_chunk_ptr = base_chunk;
   top_ptr = top (cur_arena);
-  do {
+  __dprintf("main arena top ptr: %p\n", top_ptr);
+  while (cur_chunk_ptr != top_ptr) {
     if (cur_chunk_ptr->used == 0)
-      {
-        __dprintf("free chunk %p\n", cur_chunk_ptr);
-        _int_free (cur_arena, cur_chunk_ptr, 0);
-      }
+    {
+      //__dprintf("free chunk %p\n", cur_chunk_ptr);
+      //_int_free(cur_arena, cur_chunk_ptr, 0);
+    } else {
+      __dprintf("marked as used: %p\n", cur_chunk_ptr);
+    }
     cur_chunk_ptr = next_chunk (cur_chunk_ptr);
-  } while (cur_chunk_ptr != top_ptr);
+  } 
   // traverse other arena
   while (cur_arena->next != &main_arena) {
     cur_arena = cur_arena->next;
     base_chunk = (mchunkptr) (cur_arena + 1);
     top_ptr = top (cur_arena);
+    __dprintf("this arena ptr: %p\n", top_ptr);
     unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
     if (misalign > 0)
       base_chunk =(mchunkptr) ((char*)base_chunk + MALLOC_ALIGNMENT - misalign);
     cur_chunk_ptr = base_chunk;
-    do {
+    while (cur_chunk_ptr != top_ptr){
       if (cur_chunk_ptr->used == 0)
         {
-          __dprintf("free chunk %p\n", cur_chunk_ptr);
-          _int_free (cur_arena, cur_chunk_ptr, 0);
+          //__dprintf("free chunk %p\n", cur_chunk_ptr);
+          //_int_free (cur_arena, cur_chunk_ptr, 0);
+        } else {
+            __dprintf("marked as used: %p\n", cur_chunk_ptr);
         }
       cur_chunk_ptr = next_chunk (cur_chunk_ptr);
-    } while (cur_chunk_ptr != top_ptr);
+    } 
   }
 }
 
