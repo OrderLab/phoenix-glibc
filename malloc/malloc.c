@@ -3790,24 +3790,44 @@ __libc_phx_marked_used (void *used_ptr)
 {
   mchunkptr chunk_ptr = mem2chunk (used_ptr);
   chunk_ptr->used = 1;
+  __dprintf("used ptr: %p, chunk: %p, arena: %p\n", used_ptr, chunk_ptr, arena_for_chunk(chunk_ptr));
 }
 
 void
 __libc_phx_cleanup (void)
 {
   struct malloc_state *cur_arena = &main_arena;
-  mchunkptr top_ptr = cur_arena->top;
-  mchunkptr cur_chunk_ptr = top_ptr;
-  mchunkptr next_ptr = cur_chunk_ptr->bk;
-  while (next_ptr!= top_ptr)
-  {
-      
-    if (!cur_chunk_ptr->used)
-	  {
-      __dprintf("free %p, actual malloc ptr: %p\n", cur_chunk_ptr, chunk2mem(cur_chunk_ptr));
-    }
-    cur_chunk_ptr = next_ptr;
-    next_ptr = cur_chunk_ptr->bk;
+  mchunkptr top_ptr;
+  mchunkptr cur_chunk_ptr;
+  // traverse main arena
+  mchunkptr base_chunk = (mchunkptr) mp_.sbrk_base;
+  cur_chunk_ptr = base_chunk;
+  top_ptr = top (cur_arena);
+  do {
+    if (cur_chunk_ptr->used == 0)
+      {
+        __dprintf("free chunk %p\n", cur_chunk_ptr);
+        _int_free (cur_arena, cur_chunk_ptr, 0);
+      }
+    cur_chunk_ptr = next_chunk (cur_chunk_ptr);
+  } while (cur_chunk_ptr != top_ptr);
+  // traverse other arena
+  while (cur_arena->next != &main_arena) {
+    cur_arena = cur_arena->next;
+    base_chunk = (mchunkptr) (cur_arena + 1);
+    top_ptr = top (cur_arena);
+    unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
+    if (misalign > 0)
+      base_chunk =(mchunkptr) ((char*)base_chunk + MALLOC_ALIGNMENT - misalign);
+    cur_chunk_ptr = base_chunk;
+    do {
+      if (cur_chunk_ptr->used == 0)
+        {
+          __dprintf("free chunk %p\n", cur_chunk_ptr);
+          _int_free (cur_arena, cur_chunk_ptr, 0);
+        }
+      cur_chunk_ptr = next_chunk (cur_chunk_ptr);
+    } while (cur_chunk_ptr != top_ptr);
   }
 }
 
