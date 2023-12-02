@@ -1143,9 +1143,6 @@ struct malloc_chunk {
   /* Only used for large blocks: pointer to next larger size.  */
   struct malloc_chunk* fd_nextsize; /* double links -- used only if free. */
   struct malloc_chunk *bk_nextsize;
-
-  /* used or not, for varnish*/
-  int8_t used;
 };
 
 
@@ -1377,7 +1374,11 @@ checked_request2size (size_t req) __nonnull (1)
 /* Mark a chunk as not being on the main arena.  */
 #define set_non_main_arena(p) ((p)->mchunk_size |= NON_MAIN_ARENA)
 
+#define PHX_USED 0x8
 
+#define PHX_MARK_USED(p) ((p)->mchunk_size |= PHX_USED)
+
+#define PHX_CHECK_USED(p) ((p)->mchunk_size & PHX_USED)
 /*
    Bits to mask off when extracting size
 
@@ -1386,7 +1387,7 @@ checked_request2size (size_t req) __nonnull (1)
    cause helpful core dumps to occur if it is tried by accident by
    people extending or adapting this malloc.
  */
-#define SIZE_BITS (PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA)
+#define SIZE_BITS (PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA | PHX_USED)
 
 /* Get size, ignoring use bits */
 #define chunksize(p) (chunksize_nomask (p) & ~(SIZE_BITS))
@@ -3789,7 +3790,7 @@ void
 __libc_phx_marked_used (void *used_ptr)
 {
   mchunkptr chunk_ptr = mem2chunk (used_ptr);
-  chunk_ptr->used = 1;
+  PHX_MARK_USED(chunk_ptr);
   __dprintf("used ptr: %p, chunk: %p, arena: %p\n", used_ptr, chunk_ptr, arena_for_chunk(chunk_ptr));
 }
 
@@ -3805,7 +3806,7 @@ __libc_phx_cleanup (void)
   top_ptr = top (cur_arena);
   __dprintf("main arena top ptr: %p\n", top_ptr);
   while (cur_chunk_ptr != top_ptr) {
-    if (cur_chunk_ptr->used == 0)
+    if (!PHX_CHECK_USED(cur_chunk_ptr))
     {
       //__dprintf("free chunk %p\n", cur_chunk_ptr);
       //_int_free(cur_arena, cur_chunk_ptr, 0);
@@ -3825,7 +3826,7 @@ __libc_phx_cleanup (void)
       base_chunk =(mchunkptr) ((char*)base_chunk + MALLOC_ALIGNMENT - misalign);
     cur_chunk_ptr = base_chunk;
     while (cur_chunk_ptr != top_ptr){
-      if (cur_chunk_ptr->used == 0)
+      if (!PHX_CHECK_USED(cur_chunk_ptr))
         {
           //__dprintf("free chunk %p\n", cur_chunk_ptr);
           //_int_free (cur_arena, cur_chunk_ptr, 0);
