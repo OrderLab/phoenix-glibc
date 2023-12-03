@@ -3786,13 +3786,18 @@ __libc_valloc (size_t bytes)
 
 /* Mmap range info support */
 static allocator_info **allocator_list = NULL;
-
+void *marked_arena1 = NULL, *marked_arena2 = NULL;
 void
 __libc_phx_marked_used (void *used_ptr)
 {
   mchunkptr chunk_ptr = mem2chunk (used_ptr);
   PHX_MARK_USED(chunk_ptr);
   __dprintf("used ptr: %p, chunk: %p, arena: %p\n", used_ptr, chunk_ptr, arena_for_chunk(chunk_ptr));
+  if (marked_arena1 == NULL) {
+      marked_arena1 = arena_for_chunk(chunk_ptr);
+  } else if (marked_arena1 != NULL && marked_arena1 != arena_for_chunk(chunk_ptr)) {
+      marked_arena2 = arena_for_chunk(chunk_ptr);
+  }
 }
 
 void
@@ -3842,9 +3847,11 @@ __libc_phx_cleanup (void)
   } 
   */
   // traverse other arena
-  while (cur_arena->next != &main_arena) {
-    cur_arena = cur_arena->next;
-    base_chunk = (mchunkptr) (cur_arena + 1);
+  //while (cur_arena->next != &main_arena) {
+  while (1) {
+    //cur_arena = cur_arena->next;
+    cur_arena = marked_arena1;
+      base_chunk = (mchunkptr) (cur_arena + 1);
     top_ptr = top (cur_arena);
     __dprintf("this arena top ptr: %p\n", top_ptr);
     unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
@@ -3854,14 +3861,49 @@ __libc_phx_cleanup (void)
     __dprintf("this arena base chunk: %p\n", base_chunk);
     while (cur_chunk_ptr != top_ptr){
       if (!PHX_CHECK_USED(cur_chunk_ptr))
-        {
-          __dprintf("free chunk %p\n", cur_chunk_ptr);
-          _int_free (cur_arena, cur_chunk_ptr, 0);
-        } else {
+      {
+          __dprintf("free chunk %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
+          int has_error = 0;
+          // check if invalid pointer
+          if (__builtin_expect ((uintptr_t) cur_chunk_ptr > (uintptr_t) -chunksize(cur_chunk_ptr), 0) 
+                  || __builtin_expect (misaligned_chunk (cur_chunk_ptr), 0)) {
+            __dprintf("free(): invalid pointer, ");
+            has_error = 1;
+          }
+          size_t tc_idx = csize2tidx(chunksize(cur_chunk_ptr));  
+          if (tcache != NULL && tc_idx < mp_.tcache_bins) {
+          tcache_entry *e = (tcache_entry *) chunk2mem (cur_chunk_ptr);
+          if (__glibc_unlikely (e->key == tcache_key))
+          {
+            tcache_entry *tmp;
+            size_t cnt = 0;
+            LIBC_PROBE (memory_tcache_double_free, 2, e, tc_idx);
+            for (tmp = tcache->entries[tc_idx]; tmp; tmp = REVEAL_PTR (tmp->next), ++cnt)
+            {
+              if (tmp == e) {
+                __dprintf("this is a double free, ");
+                has_error = 1;
+              }
+            }
+          }
+       }
+       if (!has_error) {
+           __libc_free(chunk2mem(cur_chunk_ptr));
+       } else {
+           __dprintf("this chunk has error\n");
+           return;
+       }
+
+      } else {
             __dprintf("marked as used: %p\n", cur_chunk_ptr);
-        }
+      }
       cur_chunk_ptr = next_chunk (cur_chunk_ptr);
     } 
+    if (cur_arena == marked_arena1 && marked_arena2 !=NULL) {
+        cur_arena = marked_arena2;
+    } else {
+        break;
+    }
   }
 }
 
