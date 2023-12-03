@@ -1388,6 +1388,7 @@ checked_request2size (size_t req) __nonnull (1)
    people extending or adapting this malloc.
  */
 #define SIZE_BITS (PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA | PHX_USED)
+//#define SIZE_BITS (PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA)
 
 /* Get size, ignoring use bits */
 #define chunksize(p) (chunksize_nomask (p) & ~(SIZE_BITS))
@@ -3808,12 +3809,15 @@ __libc_phx_cleanup (void)
   while (cur_chunk_ptr != top_ptr) {
     if (!PHX_CHECK_USED(cur_chunk_ptr))
     {
-      //__dprintf("free chunk %p\n", cur_chunk_ptr);
-      //_int_free(cur_arena, cur_chunk_ptr, 0);
+      __dprintf("free chunk %p\n", cur_chunk_ptr);
+      //__libc_free(chunk2mem(cur_chunk_ptr));
     } else {
       __dprintf("marked as used: %p\n", cur_chunk_ptr);
     }
     cur_chunk_ptr = next_chunk (cur_chunk_ptr);
+    if (cur_chunk_ptr != top_ptr) {
+        __dprintf("used: %lx\n", inuse(cur_chunk_ptr));
+    }
   } 
   // traverse other arena
   while (cur_arena->next != &main_arena) {
@@ -3828,7 +3832,7 @@ __libc_phx_cleanup (void)
     while (cur_chunk_ptr != top_ptr){
       if (!PHX_CHECK_USED(cur_chunk_ptr))
         {
-          //__dprintf("free chunk %p\n", cur_chunk_ptr);
+          __dprintf("free chunk %p\n", cur_chunk_ptr);
           //_int_free (cur_arena, cur_chunk_ptr, 0);
         } else {
             __dprintf("marked as used: %p\n", cur_chunk_ptr);
