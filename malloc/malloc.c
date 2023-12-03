@@ -3806,34 +3806,57 @@ __libc_phx_cleanup (void)
   cur_chunk_ptr = base_chunk;
   top_ptr = top (cur_arena);
   __dprintf("main arena top ptr: %p\n", top_ptr);
-  while (cur_chunk_ptr != top_ptr) {
+  __dprintf("main arena base_chunk: %p, size: %lx\n", base_chunk, *(size_t*)((char*)base_chunk+ sizeof(size_t)) );
+  /*while (cur_chunk_ptr != top_ptr) {
     if (!PHX_CHECK_USED(cur_chunk_ptr))
     {
-      __dprintf("free chunk %p\n", cur_chunk_ptr);
-      //__libc_free(chunk2mem(cur_chunk_ptr));
+      __dprintf("free chunk %p, size: %lx\n", cur_chunk_ptr,*(size_t*)((char*)cur_chunk_ptr+ sizeof(size_t)));
+
+      //check double free
+      size_t tc_idx = csize2tidx(chunksize(cur_chunk_ptr));
+        int double_free = 0;
+      if (tcache != NULL && tc_idx < mp_.tcache_bins) {
+        
+        tcache_entry *e = (tcache_entry *) chunk2mem (cur_chunk_ptr);
+        if (__glibc_unlikely (e->key == tcache_key))
+          {
+            tcache_entry *tmp;
+            size_t cnt = 0;
+            LIBC_PROBE (memory_tcache_double_free, 2, e, tc_idx);
+            for (tmp = tcache->entries[tc_idx]; tmp; tmp = REVEAL_PTR (tmp->next), ++cnt)
+            {
+              if (tmp == e) {
+                __dprintf("this is a double free\n");
+                double_free = 1;
+              }
+            }
+          }
+      }
+      if (!double_free) {
+          //__libc_free(chunk2mem(cur_chunk_ptr));
+      }
     } else {
       __dprintf("marked as used: %p\n", cur_chunk_ptr);
     }
     cur_chunk_ptr = next_chunk (cur_chunk_ptr);
-    if (cur_chunk_ptr != top_ptr) {
-        __dprintf("used: %lx\n", inuse(cur_chunk_ptr));
-    }
   } 
+  */
   // traverse other arena
   while (cur_arena->next != &main_arena) {
     cur_arena = cur_arena->next;
     base_chunk = (mchunkptr) (cur_arena + 1);
     top_ptr = top (cur_arena);
-    __dprintf("this arena ptr: %p\n", top_ptr);
+    __dprintf("this arena top ptr: %p\n", top_ptr);
     unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
     if (misalign > 0)
       base_chunk =(mchunkptr) ((char*)base_chunk + MALLOC_ALIGNMENT - misalign);
     cur_chunk_ptr = base_chunk;
+    __dprintf("this arena base chunk: %p\n", base_chunk);
     while (cur_chunk_ptr != top_ptr){
       if (!PHX_CHECK_USED(cur_chunk_ptr))
         {
           __dprintf("free chunk %p\n", cur_chunk_ptr);
-          //_int_free (cur_arena, cur_chunk_ptr, 0);
+          _int_free (cur_arena, cur_chunk_ptr, 0);
         } else {
             __dprintf("marked as used: %p\n", cur_chunk_ptr);
         }
