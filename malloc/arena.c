@@ -457,12 +457,14 @@ ptmalloc_init (void)
     static_memcpy (&meta);
     __dprintf("halfway done, false_next = %p\n", meta.false_next);
     malloc_recover_meta (meta.false_next);
-    // Recover the end of the main arena
+    // Recover the end of the main arena.. No longer needed, sbrk recoverd by kernel
+    /* 
     __dprintf("Manual update the end of the main arena, ma size = %ld\n", ma_size);
-    int size = ALIGN_UP (ma_size, GLRO(dl_pagesize));
+    unsigned long size = ALIGN_UP (ma_size, GLRO(dl_pagesize));
     void * newbreak = MORECORE(size);
     (void)newbreak;
     __dprintf("new break = %p, MORECORE = %p\n", newbreak, MORECORE(0));
+    */
   }
   __dprintf("recovered sbrk = %p", (void *)MORECORE(0));
   __dprintf("finish recovering meta\n");
