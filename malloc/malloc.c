@@ -3931,15 +3931,11 @@ __libc_phx_get_malloc_ranges (void)
   size_t count = 1 + cache_size;
 
   struct malloc_state* cur_arena = &main_arena;
-  //__libc_lock_lock (cur_arena->mutex);
   while (cur_arena->next != &main_arena) {
     __dprintf("arena\n");
     count = count + 1;
 
-    //struct malloc_state* last_arena = cur_arena;
     cur_arena = cur_arena->next;
-    //__libc_lock_lock (cur_arena->mutex);
-    //__libc_lock_unlock (last_arena->mutex);
 
     heap_info *heap = heap_for_ptr (top (cur_arena));
     while (heap->prev != NULL)
@@ -3948,8 +3944,6 @@ __libc_phx_get_malloc_ranges (void)
       heap = heap->prev;
     }
   }
-  //__libc_lock_unlock (cur_arena->mutex);
-  
   count += 1;
   size_t size = sizeof(allocator_info *) * count;
   allocator_list = (allocator_info **) MMAP (
@@ -3966,17 +3960,17 @@ __libc_phx_get_malloc_ranges (void)
   }
 
   /* Main Arena */
+  int large_cnt = mp_.n_mmaps;
   size = sizeof(allocator_info);
-  allocator_info info;
-  info->start = mp_.sbrk_base;
-  info->end = (void *)MORECORE(0);
-
+  allocator_list[large_cnt] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
+  allocator_list[large_cnt]->start = mp_.sbrk_base;
   /* __dprintf("top = %p, sbrk = %p\n", (void *)main_arena.top, (void *)MORECORE(0)); */
+  allocator_list[large_cnt]->end = (void *)MORECORE(0);
   ma_size = (size_t)((void *)MORECORE(0) - (void *)mp_.sbrk_base);
 
   /* Other Arena(s) */
   cur_arena = main_arena.next;
-  for (size_t i = 1+cache_size; i < count-1; i++) {
+  for (size_t i = 1+large_cnt; i < count-1; i++) {
     allocator_list[i] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
     heap_info *heap = heap_for_ptr (top (cur_arena));
     allocator_list[i]->start = (void *)heap;
