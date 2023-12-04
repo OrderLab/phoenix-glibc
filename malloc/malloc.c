@@ -3802,17 +3802,26 @@ __libc_valloc (size_t bytes)
 
 /* Mmap range info support */
 static allocator_info **allocator_list = NULL;
-void *marked_arena1 = NULL, *marked_arena2 = NULL;
+struct malloc_state* marked_arenas[50];
+int marked_len = 0;
 void
 __libc_phx_marked_used (void *used_ptr)
 {
   mchunkptr chunk_ptr = mem2chunk (used_ptr);
   PHX_MARK_USED(chunk_ptr);
   __dprintf("used ptr: %p, chunk: %p, arena: %p\n", used_ptr, chunk_ptr, arena_for_chunk(chunk_ptr));
-  if (marked_arena1 == NULL) {
-      marked_arena1 = arena_for_chunk(chunk_ptr);
-  } else if (marked_arena1 != NULL && marked_arena1 != arena_for_chunk(chunk_ptr)) {
-      marked_arena2 = arena_for_chunk(chunk_ptr);
+  int already_in = 0;
+  if (marked_len == 50) {
+      __dprintf("marked array full\n");
+  }
+  for (int i=0; i< marked_len; i++) {
+      if (marked_arenas[i] == arena_for_chunk(chunk_ptr)) {
+          already_in = 1;
+          break;
+      }
+  }
+  if (!already_in) {
+      marked_arenas[marked_len] = arena_for_chunk(chunk_ptr);
   }
 }
 
@@ -3826,7 +3835,7 @@ __libc_phx_cleanup (void)
   mchunkptr base_chunk = (mchunkptr) mp_.sbrk_base;
   cur_chunk_ptr = base_chunk;
   top_ptr = top (cur_arena);
-  __dprintf("main arena top ptr: %p\n", top_ptr);
+  __dprintf("main arena:%p, top ptr: %p\n", cur_arena, top_ptr);
   __dprintf("main arena base_chunk: %p, size: %lx\n", base_chunk, *(size_t*)((char*)base_chunk+ sizeof(size_t)) );
   /*while (cur_chunk_ptr != top_ptr) {
     if (!PHX_CHECK_USED(cur_chunk_ptr))
@@ -3854,20 +3863,22 @@ __libc_phx_cleanup (void)
           }
       }
       if (!double_free) {
-          //__libc_free(chunk2mem(cur_chunk_ptr));
+          __libc_free(chunk2mem(cur_chunk_ptr));
       }
     } else {
       __dprintf("marked as used: %p\n", cur_chunk_ptr);
     }
     cur_chunk_ptr = next_chunk (cur_chunk_ptr);
-  } 
-  */
+  }*/
+  
   // traverse other arena
   //while (cur_arena->next != &main_arena) {
-  while (1) {
+  //while (1) {
+  for (int i=0; i< marked_len; i++) {
+    cur_arena = marked_arenas[i];
     //cur_arena = cur_arena->next;
-    cur_arena = marked_arena1;
-      base_chunk = (mchunkptr) (cur_arena + 1);
+    //cur_arena = marked_arena1;
+    base_chunk = (mchunkptr) (cur_arena + 1);
     top_ptr = top (cur_arena);
     __dprintf("this arena top ptr: %p\n", top_ptr);
     unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
@@ -3915,11 +3926,12 @@ __libc_phx_cleanup (void)
       }
       cur_chunk_ptr = next_chunk (cur_chunk_ptr);
     } 
-    if (cur_arena == marked_arena1 && marked_arena2 !=NULL) {
+    /*if (cur_arena == marked_arena1 && marked_arena2 !=NULL) {
         cur_arena = marked_arena2;
     } else {
         break;
-    }
+    }*/
+
   }
 }
 
