@@ -1958,7 +1958,7 @@ struct phx_malloc_meta {
   uintptr_t tcache_key;
   bool __malloc_initialized;
   bool __always_fail_morecore;
-  char aligned_heap_area;
+  char *aligned_heap_area;
   mstate free_list;
   // __libc_lock_define (, free_list_lock);
   // __libc_lock_define (, list_lock);
@@ -2135,7 +2135,7 @@ phx_get_malloc_meta (struct phx_malloc_meta *meta)
   memcpy (&meta->__malloc_initialized, &__malloc_initialized, sizeof (bool));
   memcpy (&meta->__always_fail_morecore, &__always_fail_morecore,
       sizeof (bool));
-  memcpy (&meta->aligned_heap_area, &aligned_heap_area, sizeof (char));
+  memcpy (&meta->aligned_heap_area, &aligned_heap_area, sizeof (char*));
   memcpy (&meta->free_list, &free_list, sizeof (mstate));
   #if IS_IN(libc)
   memcpy (&meta->narenas, &narenas, sizeof (size_t));
