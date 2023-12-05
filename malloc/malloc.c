@@ -284,7 +284,7 @@
   or other mallocs available that do this.
 */
 
-#if 0
+#if 1
   #define __dprintf(fmt, ...) do { } while (0)
 #else
   #define __dprintf(fmt, ...) do { fprintf(stderr, "phxalloc: " fmt, ##__VA_ARGS__); } while (0)
@@ -3821,7 +3821,8 @@ __libc_phx_marked_used (void *used_ptr)
       }
   }
   if (!already_in) {
-      marked_arenas[marked_len] = arena_for_chunk(chunk_ptr);
+    marked_arenas[marked_len] = arena_for_chunk(chunk_ptr);
+    marked_len++;
   }
 }
 
@@ -3889,12 +3890,16 @@ __libc_phx_cleanup (void)
     while (cur_chunk_ptr != top_ptr){
       if (!PHX_CHECK_USED(cur_chunk_ptr))
       {
-          __dprintf("free chunk %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
-          int has_error = 0;
+          __dprintf("free chunk %p, size: %lx, cur_top ptr: %p\n", cur_chunk_ptr, chunksize(cur_chunk_ptr), top_ptr);
+          int has_error = chunk_is_mmapped(cur_chunk_ptr);
           // check if invalid pointer
           if (__builtin_expect ((uintptr_t) cur_chunk_ptr > (uintptr_t) -chunksize(cur_chunk_ptr), 0) 
                   || __builtin_expect (misaligned_chunk (cur_chunk_ptr), 0)) {
             __dprintf("free(): invalid pointer, ");
+            has_error = 1;
+          }
+          if (__glibc_unlikely (chunksize(cur_chunk_ptr) < MINSIZE || !aligned_OK (chunksize(cur_chunk_ptr)))) {
+            __dprintf("free(): invalid size");
             has_error = 1;
           }
           size_t tc_idx = csize2tidx(chunksize(cur_chunk_ptr));  
@@ -3917,12 +3922,12 @@ __libc_phx_cleanup (void)
        if (!has_error) {
            __libc_free(chunk2mem(cur_chunk_ptr));
        } else {
-           __dprintf("this chunk has error\n");
+           fprintf(stderr,"this chunk has error\n");
            return;
        }
 
       } else {
-            __dprintf("marked as used: %p\n", cur_chunk_ptr);
+            __dprintf("marked as used: %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
       }
       cur_chunk_ptr = next_chunk (cur_chunk_ptr);
     } 
