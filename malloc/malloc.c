@@ -3886,24 +3886,27 @@ __libc_phx_cleanup (void)
     if (misalign > 0)
       base_chunk =(mchunkptr) ((char*)base_chunk + MALLOC_ALIGNMENT - misalign);
     cur_chunk_ptr = base_chunk;
-    __dprintf("this arena base chunk: %p\n", base_chunk);
+    int prev_used = prev_inuse(cur_chunk_ptr);
+    __dprintf ("this arena base chunk: %p\n", base_chunk);
+    // free all chunks that is not phx_used but marked as used
     while (cur_chunk_ptr != top_ptr){
-      if (!PHX_CHECK_USED(cur_chunk_ptr))
+      if (!PHX_CHECK_USED(cur_chunk_ptr) && prev_used)
       {
-          __dprintf("free chunk %p, size: %lx, cur_top ptr: %p\n", cur_chunk_ptr, chunksize(cur_chunk_ptr), top_ptr);
-          int has_error = chunk_is_mmapped(cur_chunk_ptr);
-          // check if invalid pointer
-          if (__builtin_expect ((uintptr_t) cur_chunk_ptr > (uintptr_t) -chunksize(cur_chunk_ptr), 0) 
-                  || __builtin_expect (misaligned_chunk (cur_chunk_ptr), 0)) {
-            __dprintf("free(): invalid pointer, ");
-            has_error = 1;
-          }
-          if (__glibc_unlikely (chunksize(cur_chunk_ptr) < MINSIZE || !aligned_OK (chunksize(cur_chunk_ptr)))) {
-            __dprintf("free(): invalid size");
-            has_error = 1;
-          }
-          size_t tc_idx = csize2tidx(chunksize(cur_chunk_ptr));  
-          if (tcache != NULL && tc_idx < mp_.tcache_bins) {
+        __dprintf("free chunk %p, size: %lx, cur_top ptr: %p\n", cur_chunk_ptr, chunksize(cur_chunk_ptr), top_ptr);
+        int has_error = chunk_is_mmapped(cur_chunk_ptr);
+        // check if invalid pointer
+        if (__builtin_expect ((uintptr_t) cur_chunk_ptr > (uintptr_t) -chunksize(cur_chunk_ptr), 0) 
+                || __builtin_expect (misaligned_chunk (cur_chunk_ptr), 0)) {
+          __dprintf("free(): invalid pointer, ");
+          has_error = 1;
+        }
+        if (__glibc_unlikely (chunksize(cur_chunk_ptr) < MINSIZE || !aligned_OK (chunksize(cur_chunk_ptr)))) {
+          __dprintf("free(): invalid size");
+          has_error = 1;
+        }
+        size_t tc_idx = csize2tidx(chunksize(cur_chunk_ptr));
+        if (tcache != NULL && tc_idx < mp_.tcache_bins)
+        {
           tcache_entry *e = (tcache_entry *) chunk2mem (cur_chunk_ptr);
           if (__glibc_unlikely (e->key == tcache_key))
           {
@@ -3918,17 +3921,23 @@ __libc_phx_cleanup (void)
               }
             }
           }
-       }
-       if (!has_error) {
-           __libc_free(chunk2mem(cur_chunk_ptr));
-       } else {
-           fprintf(stderr,"this chunk has error\n");
-           return;
-       }
-
-      } else {
-            __dprintf("marked as used: %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
+        }
+        if (!has_error)
+        {
+            __libc_free(chunk2mem(cur_chunk_ptr));
+        } else {
+            fprintf(stderr,"this chunk has error\n");
+            return;
+        }
       }
+      else if (!prev_used)
+      {
+       __dprintf ("prev chunk is free: %p, size: %lx\n", cur_chunk_ptr,
+		  chunksize (cur_chunk_ptr));
+      } else {
+        __dprintf("marked as used: %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
+      }
+      prev_used = inuse(cur_chunk_ptr);
       cur_chunk_ptr = next_chunk (cur_chunk_ptr);
     } 
     /*if (cur_arena == marked_arena1 && marked_arena2 !=NULL) {
