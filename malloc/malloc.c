@@ -3926,16 +3926,15 @@ __libc_phx_cleanup (void)
         }
         size_t size = chunksize(cur_chunk_ptr);
         // check if already in fastbin
-        if ((unsigned long)chunksize(cur_chunk_ptr) <= (unsigned long)(get_max_fast())){
-                if (__builtin_expect (chunksize_nomask (chunk_at_offset (cur_chunk_ptr, size))
-			  <= CHUNK_HDR_SZ, 0)
-	|| __builtin_expect (chunksize (chunk_at_offset (cur_chunk_ptr, size))
-			     >= cur_arena->system_mem, 0))
-              {
+        if ((unsigned long)size <= (unsigned long)(get_max_fast())){
+          if (__builtin_expect (chunksize_nomask (chunk_at_offset (cur_chunk_ptr, size)) <= CHUNK_HDR_SZ, 0)
+            || __builtin_expect (chunksize (chunk_at_offset (cur_chunk_ptr, size))
+            >= cur_arena->system_mem, 0))
+          {
             bool fail = true;
             /* We might not have a lock at this point and concurrent modifications
-               of system_mem might result in a false positive.  Redo the test after
-               getting the lock.  */
+              of system_mem might result in a false positive.  Redo the test after
+              getting the lock.  */
             __libc_lock_lock (cur_arena->mutex);
             fail = (chunksize_nomask (chunk_at_offset (cur_chunk_ptr, size)) <= CHUNK_HDR_SZ
                 || chunksize (chunk_at_offset (cur_chunk_ptr, size)) >= cur_arena->system_mem);
@@ -3943,13 +3942,13 @@ __libc_phx_cleanup (void)
 
             if (fail)
               malloc_printerr ("free(): invalid next size (fast)");
-              }
-                unsigned int idx = fastbin_index(chunksize(cur_chunk_ptr));
-            mchunkptr old = fastbin(cur_arena,idx);
-            if (old == cur_chunk_ptr) {
-                has_error = 1;
-                fprintf(stderr, "fasttop double free\n");
-            }
+          }
+          unsigned int idx = fastbin_index(size);
+          mchunkptr old = fastbin(cur_arena,idx);
+          if (old == cur_chunk_ptr) {
+              has_error = 1;
+              fprintf(stderr, "fasttop double free\n");
+          }
         }
         if (!has_error)
         {
