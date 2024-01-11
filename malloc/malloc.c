@@ -3821,6 +3821,7 @@ __libc_phx_marked_used (void *used_ptr)
       }
   }
   if (!already_in) {
+      fprintf(stderr, "arena marked used: %p\n", arena_for_chunk(chunk_ptr));
     marked_arenas[marked_len] = arena_for_chunk(chunk_ptr);
     marked_len++;
   }
@@ -3881,29 +3882,33 @@ __libc_phx_cleanup (void)
     //cur_arena = marked_arena1;
     base_chunk = (mchunkptr) (cur_arena + 1);
     top_ptr = top (cur_arena);
-    __dprintf("this arena top ptr: %p\n", top_ptr);
+    fprintf(stderr,"this arena top ptr: %p, base ptr: %p\n", top_ptr, base_chunk);
     unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
     if (misalign > 0)
       base_chunk =(mchunkptr) ((char*)base_chunk + MALLOC_ALIGNMENT - misalign);
     cur_chunk_ptr = base_chunk;
-    __dprintf("this arena base chunk: %p\n", base_chunk);
-    while (cur_chunk_ptr != top_ptr){
-      if (!PHX_CHECK_USED(cur_chunk_ptr))
+    int prev_used = prev_inuse(cur_chunk_ptr);
+    __dprintf ("this arena base chunk: %p\n", base_chunk);
+    // free all chunks that is not phx_used but marked as used
+    while (cur_chunk_ptr <= top_ptr){
+      if (!PHX_CHECK_USED(cur_chunk_ptr) && prev_used)
       {
-          __dprintf("free chunk %p, size: %lx, cur_top ptr: %p\n", cur_chunk_ptr, chunksize(cur_chunk_ptr), top_ptr);
-          int has_error = chunk_is_mmapped(cur_chunk_ptr);
-          // check if invalid pointer
-          if (__builtin_expect ((uintptr_t) cur_chunk_ptr > (uintptr_t) -chunksize(cur_chunk_ptr), 0) 
-                  || __builtin_expect (misaligned_chunk (cur_chunk_ptr), 0)) {
-            __dprintf("free(): invalid pointer, ");
-            has_error = 1;
-          }
-          if (__glibc_unlikely (chunksize(cur_chunk_ptr) < MINSIZE || !aligned_OK (chunksize(cur_chunk_ptr)))) {
-            __dprintf("free(): invalid size");
-            has_error = 1;
-          }
-          size_t tc_idx = csize2tidx(chunksize(cur_chunk_ptr));  
-          if (tcache != NULL && tc_idx < mp_.tcache_bins) {
+        //__dprintf("free chunk %p, size: %lx, cur_top ptr: %p\n", cur_chunk_ptr, chunksize(cur_chunk_ptr), top_ptr);
+        int has_error = chunk_is_mmapped(cur_chunk_ptr);
+        // check if invalid pointer
+        if (__builtin_expect ((uintptr_t) cur_chunk_ptr > (uintptr_t) -chunksize(cur_chunk_ptr), 0) 
+                || __builtin_expect (misaligned_chunk (cur_chunk_ptr), 0)) {
+          fprintf(stderr, "free(): invalid pointer, ");
+          has_error = 1;
+        }
+        if (__glibc_unlikely (chunksize(cur_chunk_ptr) < MINSIZE || !aligned_OK (chunksize(cur_chunk_ptr)))) {
+          fprintf(stderr,"free(): invalid size: %lx\n",chunksize(cur_chunk_ptr));
+          fprintf(stderr,"cur chunk %p, top chunk %p ", cur_chunk_ptr, top_ptr);
+          has_error = 1;
+        }
+        size_t tc_idx = csize2tidx(chunksize(cur_chunk_ptr));
+        if (tcache != NULL && tc_idx < mp_.tcache_bins)
+        {
           tcache_entry *e = (tcache_entry *) chunk2mem (cur_chunk_ptr);
           if (__glibc_unlikely (e->key == tcache_key))
           {
@@ -3913,22 +3918,54 @@ __libc_phx_cleanup (void)
             for (tmp = tcache->entries[tc_idx]; tmp; tmp = REVEAL_PTR (tmp->next), ++cnt)
             {
               if (tmp == e) {
-                __dprintf("this is a double free, ");
+                fprintf(stderr, "this is a double free, ");
                 has_error = 1;
               }
             }
           }
-       }
-       if (!has_error) {
-           __libc_free(chunk2mem(cur_chunk_ptr));
-       } else {
-           fprintf(stderr,"this chunk has error\n");
-           return;
-       }
+        }
+        size_t size = chunksize(cur_chunk_ptr);
+        // check if already in fastbin
+        if ((unsigned long)size <= (unsigned long)(get_max_fast())){
+          if (__builtin_expect (chunksize_nomask (chunk_at_offset (cur_chunk_ptr, size)) <= CHUNK_HDR_SZ, 0)
+            || __builtin_expect (chunksize (chunk_at_offset (cur_chunk_ptr, size))
+            >= cur_arena->system_mem, 0))
+          {
+            bool fail = true;
+            /* We might not have a lock at this point and concurrent modifications
+              of system_mem might result in a false positive.  Redo the test after
+              getting the lock.  */
+            __libc_lock_lock (cur_arena->mutex);
+            fail = (chunksize_nomask (chunk_at_offset (cur_chunk_ptr, size)) <= CHUNK_HDR_SZ
+                || chunksize (chunk_at_offset (cur_chunk_ptr, size)) >= cur_arena->system_mem);
+            __libc_lock_unlock (cur_arena->mutex);
 
-      } else {
-            __dprintf("marked as used: %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
+            if (fail)
+              malloc_printerr ("free(): invalid next size (fast)");
+          }
+          unsigned int idx = fastbin_index(size);
+          mchunkptr old = fastbin(cur_arena,idx);
+          if (old == cur_chunk_ptr) {
+              has_error = 1;
+              fprintf(stderr, "fasttop double free, idx: %d, chunk ptr: %p, size: %ld, top: %p\n", idx, old, chunksize(old), top_ptr);
+          }
+        }
+        if (!has_error)
+        {
+            __libc_free(chunk2mem(cur_chunk_ptr));
+        } else {
+            fprintf(stderr,"this chunk has error\n");
+            continue;
+        }
       }
+      else if (!prev_used)
+      {
+       //__dprintf ("prev chunk is free: %p, size: %lx\n", cur_chunk_ptr,
+		  //chunksize (cur_chunk_ptr));
+      } else {
+        //__dprintf("marked as used: %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
+      }
+      prev_used = inuse(cur_chunk_ptr);
       cur_chunk_ptr = next_chunk (cur_chunk_ptr);
     } 
     /*if (cur_arena == marked_arena1 && marked_arena2 !=NULL) {
@@ -4960,9 +4997,11 @@ _int_free (mstate av, mchunkptr p, int have_lock)
       {
 	/* Check that the top of the bin is not the record we are going to
 	   add (i.e., double free).  */
-	if (__builtin_expect (old == p, 0))
-	  malloc_printerr ("double free or corruption (fasttop)");
-	p->fd = PROTECT_PTR (&p->fd, old);
+	if (__builtin_expect (old == p, 0)) {
+	  fprintf(stderr, "for ptr: %p\n", old);
+        malloc_printerr ("double free or corruption (fasttop)");
+    }
+      p->fd = PROTECT_PTR (&p->fd, old);
 	*fb = p;
       }
     else
@@ -4970,9 +5009,11 @@ _int_free (mstate av, mchunkptr p, int have_lock)
 	{
 	  /* Check that the top of the bin is not the record we are going to
 	     add (i.e., double free).  */
-	  if (__builtin_expect (old == p, 0))
+	  if (__builtin_expect (old == p, 0)){ 
+        fprintf(stderr, "for ptr: %p\n", old);
 	    malloc_printerr ("double free or corruption (fasttop)");
-	  old2 = old;
+	  }
+    old2 = old;
 	  p->fd = PROTECT_PTR (&p->fd, old);
 	}
       while ((old = catomic_compare_and_exchange_val_rel (fb, p, old2))
