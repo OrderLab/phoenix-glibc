@@ -3814,13 +3814,14 @@ __libc_phx_marked_used (void *used_ptr)
   if (marked_len == 50) {
       __dprintf("marked array full\n");
   }
-  for (int i=0; i< marked_len; i++) {
+  for (int i = 0; i < marked_len; i++)
+  {   
       if (marked_arenas[i] == arena_for_chunk(chunk_ptr)) {
           already_in = 1;
           break;
       }
   }
-  if (!already_in) {
+  if (!already_in && arena_for_chunk(chunk_ptr) != &main_arena) {
       fprintf(stderr, "arena marked used: %p\n", arena_for_chunk(chunk_ptr));
     marked_arenas[marked_len] = arena_for_chunk(chunk_ptr);
     marked_len++;
@@ -3949,13 +3950,17 @@ __libc_phx_cleanup (void)
               has_error = 1;
               fprintf(stderr, "fasttop double free, idx: %d, chunk ptr: %p, size: %ld, top: %p\n", idx, old, chunksize(old), top_ptr);
           }
+	      }
+	      // check if this chunk is in main arena, WHY?
+        if (chunk_main_arena(cur_chunk_ptr)) {
+          has_error = 1;
+          fprintf(stderr, "this chunk is in main arena, ");
         }
-        if (!has_error)
+	      if (!has_error)
         {
             __libc_free(chunk2mem(cur_chunk_ptr));
         } else {
             fprintf(stderr,"this chunk has error\n");
-            continue;
         }
       }
       else if (!prev_used)
