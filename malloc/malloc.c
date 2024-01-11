@@ -3947,7 +3947,7 @@ __libc_phx_cleanup (void)
           mchunkptr old = fastbin(cur_arena,idx);
           if (old == cur_chunk_ptr) {
               has_error = 1;
-              fprintf(stderr, "fasttop double free\n");
+              fprintf(stderr, "fasttop double free, idx: %d, chunk ptr: %p, size: %ld, top: %p\n", idx, old, chunksize(old), top_ptr);
           }
         }
         if (!has_error)
