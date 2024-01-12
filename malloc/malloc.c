@@ -3826,20 +3826,33 @@ __libc_phx_marked_used (void *used_ptr)
     marked_arenas[marked_len] = arena_for_chunk(chunk_ptr);
     marked_len++;
   }
+  
 }
 
 void
 __libc_phx_cleanup (void)
 {
   struct malloc_state *cur_arena = &main_arena;
+  
+  fprintf(stderr, "print marked arenas\n");
+  for (int i=0; i<marked_len;i++) {
+    cur_arena = marked_arenas[i];
+    fprintf(stderr, "arena: %p\n", cur_arena);
+    heap_info* cur_heap = heap_for_ptr(top(cur_arena));
+    while (cur_heap->prev != NULL) {
+        fprintf(stderr, "   has heap: %p, size: %lx, heap top: %p\n", cur_heap, cur_heap->size, (void*)((unsigned long)cur_heap + cur_heap->size));
+        cur_heap = cur_heap->prev;
+    }
+  }
+  cur_arena = &main_arena;
   mchunkptr top_ptr;
   mchunkptr cur_chunk_ptr;
   // traverse main arena
   mchunkptr base_chunk = (mchunkptr) mp_.sbrk_base;
   cur_chunk_ptr = base_chunk;
   top_ptr = top (cur_arena);
-  __dprintf("main arena:%p, top ptr: %p\n", cur_arena, top_ptr);
-  __dprintf("main arena base_chunk: %p, size: %lx\n", base_chunk, *(size_t*)((char*)base_chunk+ sizeof(size_t)) );
+  fprintf(stderr, "main arena:%p, top ptr: %p\n", cur_arena, top_ptr);
+  fprintf(stderr, "main arena base_chunk: %p, size: %lx\n", base_chunk, *(size_t*)((char*)base_chunk+ sizeof(size_t)) );
   /*while (cur_chunk_ptr != top_ptr) {
     if (!PHX_CHECK_USED(cur_chunk_ptr))
     {
@@ -3883,13 +3896,18 @@ __libc_phx_cleanup (void)
     //cur_arena = marked_arena1;
     base_chunk = (mchunkptr) (cur_arena + 1);
     top_ptr = top (cur_arena);
-    fprintf(stderr,"this arena top ptr: %p, base ptr: %p\n", top_ptr, base_chunk);
+    fprintf(stderr,"this arena top ptr: %p, base ptr: %p, bit mask: %lx\n", top_ptr, base_chunk,(chunksize_nomask(base_chunk) & SIZE_BITS));
     unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
     if (misalign > 0)
       base_chunk =(mchunkptr) ((char*)base_chunk + MALLOC_ALIGNMENT - misalign);
     cur_chunk_ptr = base_chunk;
+    // if base_chunk is larger than top_ptr, then this arena is not used, WHY?
+    if (base_chunk > top_ptr) {
+      fprintf(stderr, "this arena is not used\n");
+      continue;
+    }
     int prev_used = prev_inuse(cur_chunk_ptr);
-    __dprintf ("this arena base chunk: %p\n", base_chunk);
+    __dprintf ("this arena base chunk: %p, bit mask: %lx\n", base_chunk, (chunksize_nomask(base_chunk) & SIZE_BITS));
     // free all chunks that is not phx_used but marked as used
     while (cur_chunk_ptr <= top_ptr){
       if (!PHX_CHECK_USED(cur_chunk_ptr) && prev_used)
@@ -3954,13 +3972,13 @@ __libc_phx_cleanup (void)
 	      // check if this chunk is in main arena, WHY?
         if (chunk_main_arena(cur_chunk_ptr)) {
           has_error = 1;
-          fprintf(stderr, "this chunk is in main arena, ");
+          __dprintf("this chunk is in main arena, chunk: %p, size: %ld\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
         }
 	      if (!has_error)
         {
             __libc_free(chunk2mem(cur_chunk_ptr));
         } else {
-            fprintf(stderr,"this chunk has error\n");
+            __dprintf("this chunk has error\n");
         }
       }
       else if (!prev_used)
