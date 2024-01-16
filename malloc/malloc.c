@@ -3921,18 +3921,18 @@ __libc_phx_cleanup (void)
           //__dprintf("free chunk %p, size: %lx, cur_top ptr: %p\n", cur_chunk_ptr, chunksize(cur_chunk_ptr), top_ptr);
           int has_error = chunk_is_mmapped(cur_chunk_ptr);
           // check if invalid pointer
-          if (__builtin_expect ((uintptr_t) cur_chunk_ptr > (uintptr_t) -chunksize(cur_chunk_ptr), 0) 
-                  || __builtin_expect (misaligned_chunk (cur_chunk_ptr), 0)) {
+          if (!has_error && (__builtin_expect ((uintptr_t) cur_chunk_ptr > (uintptr_t) -chunksize(cur_chunk_ptr), 0) 
+                  || __builtin_expect (misaligned_chunk (cur_chunk_ptr), 0))) {
             fprintf(stderr, "free(): invalid pointer, ");
             has_error = 1;
           }
-          if (__glibc_unlikely (chunksize(cur_chunk_ptr) < MINSIZE || !aligned_OK (chunksize(cur_chunk_ptr)))) {
+          if (!has_error && (__glibc_unlikely (chunksize(cur_chunk_ptr) < MINSIZE || !aligned_OK (chunksize(cur_chunk_ptr))))) {
             fprintf(stderr,"free(): invalid size: %lx\n",chunksize(cur_chunk_ptr));
             fprintf(stderr,"cur chunk %p, top chunk %p ", cur_chunk_ptr, top_ptr);
             has_error = 1;
           }
           size_t tc_idx = csize2tidx(chunksize(cur_chunk_ptr));
-          if (tcache != NULL && tc_idx < mp_.tcache_bins)
+          if (!has_error && tcache != NULL && tc_idx < mp_.tcache_bins)
           {
             tcache_entry *e = (tcache_entry *) chunk2mem (cur_chunk_ptr);
             if (__glibc_unlikely (e->key == tcache_key))
@@ -3951,7 +3951,7 @@ __libc_phx_cleanup (void)
           }
           size_t size = chunksize(cur_chunk_ptr);
           // check if already in fastbin
-          if ((unsigned long)size <= (unsigned long)(get_max_fast())){
+          if (!has_error && (unsigned long)size <= (unsigned long)(get_max_fast())){
             if (__builtin_expect (chunksize_nomask (chunk_at_offset (cur_chunk_ptr, size)) <= CHUNK_HDR_SZ, 0)
               || __builtin_expect (chunksize (chunk_at_offset (cur_chunk_ptr, size))
               >= cur_arena->system_mem, 0))
@@ -3969,16 +3969,18 @@ __libc_phx_cleanup (void)
                 fprintf (stderr, "free(): invalid next size (fast)");
                 has_error = 1;
               }
+	          }
+            if (!has_error) {
+              unsigned int idx = fastbin_index(size);
+              mchunkptr old = fastbin(cur_arena,idx);
+              if (old == cur_chunk_ptr) {
+                  has_error = 1;
+                  fprintf(stderr, "fasttop double free, idx: %d, chunk ptr: %p, size: %ld, top: %p\n", idx, old, chunksize(old), top_ptr);
+              }
             }
-            unsigned int idx = fastbin_index(size);
-            mchunkptr old = fastbin(cur_arena,idx);
-            if (old == cur_chunk_ptr) {
-                has_error = 1;
-                fprintf(stderr, "fasttop double free, idx: %d, chunk ptr: %p, size: %ld, top: %p\n", idx, old, chunksize(old), top_ptr);
-            }
-          }
+	        }
           // check if this chunk is in main arena, WHY?
-          if (chunk_main_arena(cur_chunk_ptr)) {
+          if (!has_error && chunk_main_arena(cur_chunk_ptr)) {
             has_error = 1;
             __dprintf("this chunk is in main arena, chunk: %p, size: %ld\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
           }
