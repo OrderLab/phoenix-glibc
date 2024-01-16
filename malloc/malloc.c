@@ -3833,7 +3833,7 @@ void
 __libc_phx_cleanup (void)
 {
   struct malloc_state *cur_arena = &main_arena;
-  
+  int cleanup_cnt = 0;
   fprintf(stderr, "print marked arenas\n");
   for (int i=0; i<marked_len;i++) {
     cur_arena = marked_arenas[i];
@@ -3897,24 +3897,25 @@ __libc_phx_cleanup (void)
     heap_info *cur_heap = heap_for_ptr (top (cur_arena));
     size_t heap_size = cur_heap->size;
     void *heap_top = (void *) ((unsigned long) cur_heap + heap_size);
-    fprintf (stderr, "iterate heap: %p, size: %lx, top: %p\n", cur_heap, heap_size, heap_top);
+    fprintf (stderr, "iterate heap: %p, size: %lx, top: %p\n", cur_heap, heap_size, top(cur_arena));
     while (cur_heap->prev != NULL) {
       base_chunk = (mchunkptr) (cur_heap + 1);
       top_ptr = heap_top;
-      fprintf(stderr,"this heap top ptr: %p, base ptr: %p, bit mask: %lx\n", top_ptr, base_chunk,(chunksize_nomask(base_chunk) & SIZE_BITS));
       unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
       if (misalign > 0)
         base_chunk =(mchunkptr) ((char*)base_chunk + MALLOC_ALIGNMENT - misalign);
+      fprintf(stderr,"this heap: %p, top ptr: %p, base ptr: %p, bit mask: %lx\n",cur_heap, top_ptr, base_chunk,(chunksize_nomask(base_chunk) & SIZE_BITS));
       cur_chunk_ptr = base_chunk;
       // if base_chunk is larger than top_ptr, then this arena is not used, WHY?
       if (base_chunk > top_ptr) {
         fprintf(stderr, "this arena is not used\n");
+        cur_heap = cur_heap->prev;
         continue;
       }
       int prev_used = prev_inuse(cur_chunk_ptr);
       __dprintf ("this arena base chunk: %p, bit mask: %lx\n", base_chunk, (chunksize_nomask(base_chunk) & SIZE_BITS));
       // free all chunks that is not phx_used but marked as used
-      while (cur_chunk_ptr <= top_ptr){
+      while (cur_chunk_ptr < top_ptr){
         if (!PHX_CHECK_USED(cur_chunk_ptr) && prev_used)
         {
           //__dprintf("free chunk %p, size: %lx, cur_top ptr: %p\n", cur_chunk_ptr, chunksize(cur_chunk_ptr), top_ptr);
@@ -3964,8 +3965,10 @@ __libc_phx_cleanup (void)
                   || chunksize (chunk_at_offset (cur_chunk_ptr, size)) >= cur_arena->system_mem);
               __libc_lock_unlock (cur_arena->mutex);
 
-              if (fail)
-                malloc_printerr ("free(): invalid next size (fast)");
+              if (fail){
+                fprintf (stderr, "free(): invalid next size (fast)");
+                has_error = 1;
+              }
             }
             unsigned int idx = fastbin_index(size);
             mchunkptr old = fastbin(cur_arena,idx);
@@ -3981,6 +3984,7 @@ __libc_phx_cleanup (void)
           }
           if (!has_error)
           {
+              cleanup_cnt++;
               __libc_free(chunk2mem(cur_chunk_ptr));
           } else {
               __dprintf("this chunk has error\n");
@@ -3993,7 +3997,9 @@ __libc_phx_cleanup (void)
         } else {
           //__dprintf("marked as used: %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
         }
-        prev_used = inuse(cur_chunk_ptr);
+        //prev_used = inuse(cur_chunk_ptr);
+        
+        prev_used = *((size_t*)cur_chunk_ptr + 1) & PREV_INUSE;
         cur_chunk_ptr = next_chunk (cur_chunk_ptr);
       }
       /*if (cur_arena == marked_arena1 && marked_arena2 !=NULL) {
@@ -4004,6 +4010,7 @@ __libc_phx_cleanup (void)
       cur_heap = cur_heap->prev;
     }
   }
+  fprintf(stderr, "cleanup total: %d chunks\n", cleanup_cnt);
 }
 
 void *
