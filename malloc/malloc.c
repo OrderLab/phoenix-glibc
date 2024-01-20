@@ -3949,7 +3949,11 @@ __libc_phx_cleanup (void)
               }
             }
           }
-          size_t size = chunksize(cur_chunk_ptr);
+	        size_t size = chunksize (cur_chunk_ptr);
+          if (size >= FASTBIN_CONSOLIDATION_THRESHOLD) {
+            fprintf(stderr, "this chunk is too large, ");
+            has_error = 1;
+          }
           // check if already in fastbin
           if (!has_error && (unsigned long)size <= (unsigned long)(get_max_fast())){
             if (__builtin_expect (chunksize_nomask (chunk_at_offset (cur_chunk_ptr, size)) <= CHUNK_HDR_SZ, 0)
