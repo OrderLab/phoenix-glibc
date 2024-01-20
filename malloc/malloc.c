@@ -3833,7 +3833,7 @@ void
 __libc_phx_cleanup (void)
 {
   struct malloc_state *cur_arena = &main_arena;
-  int cleanup_cnt = 0;
+  int cleanup_cnt = 0, prev_cleanup_cnt = 0;
   fprintf(stderr, "print marked arenas\n");
   for (int i=0; i<marked_len;i++) {
     cur_arena = marked_arenas[i];
@@ -4009,6 +4009,9 @@ __libc_phx_cleanup (void)
       } else {
 	  break;
       }*/
+      fprintf (stderr, "this heap: %p, cleanup_cnt: %d\n", cur_heap,
+	       cleanup_cnt - prev_cleanup_cnt);
+      prev_cleanup_cnt = cleanup_cnt;
       cur_heap = cur_heap->prev;
     }
   }
