@@ -3896,10 +3896,10 @@ __libc_phx_cleanup (void)
     // cur_arena = marked_arena1;
     heap_info *cur_heap = heap_for_ptr (top (cur_arena));
     size_t heap_size = cur_heap->size;
-    void *heap_top = (void *) ((unsigned long) cur_heap + heap_size);
     fprintf (stderr, "iterate heap: %p, size: %lx, top: %p\n", cur_heap, heap_size, top(cur_arena));
     while (cur_heap->prev != NULL) {
       base_chunk = (mchunkptr) (cur_heap + 1);
+      void *heap_top = (void *) ((unsigned long) cur_heap + heap_size);
       top_ptr = heap_top;
       unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
       if (misalign > 0)
