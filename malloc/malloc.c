@@ -3833,6 +3833,7 @@ void
 __libc_phx_cleanup (void)
 {
   struct malloc_state *cur_arena = &main_arena;
+  size_t cleanup_size = 0;
   int cleanup_cnt = 0, prev_cleanup_cnt = 0;
   fprintf(stderr, "print marked arenas\n");
   for (int i=0; i<marked_len;i++) {
@@ -3951,7 +3952,6 @@ __libc_phx_cleanup (void)
           }
 	        size_t size = chunksize (cur_chunk_ptr);
           if (size >= FASTBIN_CONSOLIDATION_THRESHOLD) {
-            fprintf(stderr, "this chunk is too large, ");
             has_error = 1;
           }
           // check if already in fastbin
@@ -3990,7 +3990,8 @@ __libc_phx_cleanup (void)
           }
           if (!has_error)
           {
-              cleanup_cnt++;
+	            cleanup_cnt++;
+              cleanup_size += chunksize(cur_chunk_ptr);
               __libc_free(chunk2mem(cur_chunk_ptr));
           } else {
               __dprintf("this chunk has error\n");
@@ -4019,7 +4020,7 @@ __libc_phx_cleanup (void)
       cur_heap = cur_heap->prev;
     }
   }
-  fprintf(stderr, "cleanup total: %d chunks\n", cleanup_cnt);
+  fprintf(stderr, "cleanup total: %d chunks, %ld bytes\n", cleanup_cnt, cleanup_size);
 }
 
 void *
