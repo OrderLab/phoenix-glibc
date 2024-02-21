@@ -1142,7 +1142,7 @@ struct malloc_chunk {
 
   /* Only used for large blocks: pointer to next larger size.  */
   struct malloc_chunk* fd_nextsize; /* double links -- used only if free. */
-  struct malloc_chunk* bk_nextsize;
+  struct malloc_chunk *bk_nextsize;
 };
 
 
@@ -1374,7 +1374,11 @@ checked_request2size (size_t req) __nonnull (1)
 /* Mark a chunk as not being on the main arena.  */
 #define set_non_main_arena(p) ((p)->mchunk_size |= NON_MAIN_ARENA)
 
+#define PHX_USED 0x8
 
+#define PHX_MARK_USED(p) ((p)->mchunk_size |= PHX_USED)
+
+#define PHX_CHECK_USED(p) ((p)->mchunk_size & PHX_USED)
 /*
    Bits to mask off when extracting size
 
@@ -1383,7 +1387,8 @@ checked_request2size (size_t req) __nonnull (1)
    cause helpful core dumps to occur if it is tried by accident by
    people extending or adapting this malloc.
  */
-#define SIZE_BITS (PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA)
+#define SIZE_BITS (PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA | PHX_USED)
+//#define SIZE_BITS (PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA)
 
 /* Get size, ignoring use bits */
 #define chunksize(p) (chunksize_nomask (p) & ~(SIZE_BITS))
@@ -2089,6 +2094,7 @@ malloc_recover_meta (struct malloc_state *false_next)
 {
   __dprintf("false next's addr = %p\n", false_next);
   // Recover some fields in the structs to make it work well
+  fprintf(stderr, "main arena lock: %d\n", main_arena.mutex);
   main_arena.mutex = _LIBC_LOCK_INITIALIZER;
   free_list_lock = _LIBC_LOCK_INITIALIZER;
   list_lock = _LIBC_LOCK_INITIALIZER;
@@ -2102,6 +2108,8 @@ malloc_recover_meta (struct malloc_state *false_next)
   cur_arena = &main_arena;
   while (cur_arena->next != &main_arena) {
     cur_arena = cur_arena->next;
+    // check if any of the mutex is held
+    fprintf(stderr, "arena: %p lock value is :%d\n",  cur_arena, (cur_arena->mutex));
     cur_arena->mutex = _LIBC_LOCK_INITIALIZER;
   }
 
@@ -3797,6 +3805,318 @@ __libc_valloc (size_t bytes)
 
 /* Mmap range info support */
 static allocator_info **allocator_list = NULL;
+struct malloc_state* marked_arenas[50];
+int marked_len = 0;
+size_t preserved_size = 0;
+unsigned long preserved_cnt = 0;
+void
+__libc_phx_marked_used (void *used_ptr)
+{
+  mchunkptr chunk_ptr = mem2chunk (used_ptr);
+  PHX_MARK_USED(chunk_ptr);
+  preserved_size += chunksize(chunk_ptr);
+  preserved_cnt += 1;
+  __dprintf("used ptr: %p, chunk: %p, arena: %p\n", used_ptr, chunk_ptr, arena_for_chunk(chunk_ptr));
+  int already_in = 0;
+  if (marked_len == 50) {
+      __dprintf("marked array full\n");
+  }
+  for (int i = 0; i < marked_len; i++)
+  {   
+      if (marked_arenas[i] == arena_for_chunk(chunk_ptr)) {
+          already_in = 1;
+          break;
+      }
+  }
+  if (!already_in && arena_for_chunk(chunk_ptr) != &main_arena) {
+      fprintf(stderr, "arena marked used: %p\n", arena_for_chunk(chunk_ptr));
+    marked_arenas[marked_len] = arena_for_chunk(chunk_ptr);
+    marked_len++;
+  }
+}
+
+int
+check_invalid_ptr (const mchunkptr cur_chunk_ptr)
+{
+  if (__builtin_expect ((uintptr_t) cur_chunk_ptr
+      > (uintptr_t) -chunksize (cur_chunk_ptr),
+        0)
+  || __builtin_expect (misaligned_chunk (cur_chunk_ptr), 0))
+  {
+    fprintf(stderr, "chunk error: %p invalid pointer\n", cur_chunk_ptr);
+    return 1;
+  }
+  return 0;
+}
+
+int
+check_invalid_size (const mchunkptr cur_chunk_ptr)
+{
+  if (__glibc_unlikely (chunksize (cur_chunk_ptr) < MINSIZE
+			      || !aligned_OK (chunksize (cur_chunk_ptr))))
+  {
+    fprintf(stderr,"chunk error: %p, invalid size: %lx\n", cur_chunk_ptr,chunksize(cur_chunk_ptr));
+    return 1;
+  }
+  return 0;
+}
+
+int
+check_in_tcache (const mchunkptr cur_chunk_ptr)
+{
+  size_t tc_idx = csize2tidx(chunksize(cur_chunk_ptr));
+  if (tcache != NULL && tc_idx < mp_.tcache_bins)
+  {
+    tcache_entry *e = (tcache_entry *) chunk2mem (cur_chunk_ptr);
+    if (__glibc_unlikely (e->key == tcache_key))
+    {
+      tcache_entry *tmp;
+      size_t cnt = 0;
+      LIBC_PROBE (memory_tcache_double_free, 2, e, tc_idx);
+      for (tmp = tcache->entries[tc_idx]; tmp; tmp = REVEAL_PTR (tmp->next), ++cnt)
+      {
+        if (tmp == e) {
+          fprintf(stderr, "this is a double free, ");
+          return 1;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+int
+check_in_fastbin (const mchunkptr cur_chunk_ptr, struct malloc_state* const cur_arena)
+{
+  size_t size = chunksize (cur_chunk_ptr);
+  if (size >= FASTBIN_CONSOLIDATION_THRESHOLD)
+  {
+    return 1;   
+  }
+  if ((unsigned long) size <= (unsigned long) (get_max_fast ()))
+  {
+    if (__builtin_expect (chunksize_nomask (chunk_at_offset (cur_chunk_ptr, size)) <= CHUNK_HDR_SZ, 0)
+      || __builtin_expect (chunksize (chunk_at_offset (cur_chunk_ptr, size))
+      >= cur_arena->system_mem, 0))
+    {
+      bool fail = true;
+      /* We might not have a lock at this point and concurrent modifications
+        of system_mem might result in a false positive.  Redo the test after
+        getting the lock.  */
+      __libc_lock_lock (cur_arena->mutex);
+      fail = (chunksize_nomask (chunk_at_offset (cur_chunk_ptr, size)) <= CHUNK_HDR_SZ
+          || chunksize (chunk_at_offset (cur_chunk_ptr, size)) >= cur_arena->system_mem);
+      __libc_lock_unlock (cur_arena->mutex);
+
+      if (fail){
+        fprintf (stderr, "chunk error: %p invalid next size (fast)\n", cur_chunk_ptr);
+        return 1;
+      }
+    }
+    unsigned int idx = fastbin_index(size);
+    mchunkptr old = fastbin(cur_arena,idx);
+    if (old == cur_chunk_ptr) {
+      fprintf(stderr, "fasttop double free, idx: %d, chunk ptr: %p, size: %ld\n", idx, old, chunksize(old));
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
+int
+clean_one_chunk (const mchunkptr cur_chunk_ptr, const int current_used, struct malloc_state* const cur_arena, const mchunkptr top_ptr, size_t * const cleanup_size)
+{
+  int chunk_cleanup_cnt = 0;
+  if (!PHX_CHECK_USED(cur_chunk_ptr) && current_used)
+  {
+    __dprintf ("free chunk %p, size: %lx, cur_top ptr: %p\n", cur_chunk_ptr,
+	       chunksize (cur_chunk_ptr), top_ptr);
+    // check if mmapped
+    int has_error = chunk_is_mmapped(cur_chunk_ptr);
+    // check if invalid pointer  
+    if (!has_error && check_invalid_ptr(cur_chunk_ptr)) return -1;
+    // check if invalid size
+    if (!has_error && check_invalid_size(cur_chunk_ptr)) return -1;
+    // check if in tcache
+    if (!has_error && check_in_tcache(cur_chunk_ptr)) has_error = 1;
+    // check if already in fastbin
+    if (!has_error && check_in_fastbin(cur_chunk_ptr, cur_arena)) has_error = 1;
+    // check if this chunk is in main arena, WHY?
+    if (!has_error && chunk_main_arena(cur_chunk_ptr)) has_error = 1;
+    if (!has_error)
+    {
+      chunk_cleanup_cnt++;
+      (*cleanup_size) += chunksize(cur_chunk_ptr);
+      //fprintf(stderr, "clean chunk: %p, prev_size: %lu, size: %lu\n", cur_chunk_ptr, *(unsigned long*)cur_chunk_ptr, chunksize_nomask(cur_chunk_ptr));
+      __libc_free(chunk2mem(cur_chunk_ptr));
+    }
+    else
+    {
+      __dprintf("this chunk has error\n");
+    }
+  }
+  else if (!current_used)
+  {
+    __dprintf ("prev chunk is free: %p, size: %lx\n", cur_chunk_ptr,
+    chunksize (cur_chunk_ptr));
+  } else {
+    __dprintf("prev chunk is marked as used: %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
+  }
+  return chunk_cleanup_cnt;
+}
+
+int
+clean_one_heap (const heap_info * const cur_heap,  size_t * const cleanup_size,  struct malloc_state* const cur_arena)
+{
+  mchunkptr base_chunk = NULL, top_ptr = NULL, cur_chunk_ptr = NULL;
+  size_t heap_size = cur_heap->size;
+  int heap_cleanup_cnt = 0;
+  base_chunk = (mchunkptr) (cur_heap + 1);
+  void *heap_top = (void *) ((unsigned long) cur_heap + heap_size);
+  top_ptr = heap_top;
+  // align base_chunk
+  if (cur_heap->prev == NULL) {
+      // this heap has a malloc_state
+      base_chunk = (mchunkptr)((mstate)base_chunk + 1);
+  }
+  unsigned long misalign = (uintptr_t) chunk2mem(base_chunk) & MALLOC_ALIGN_MASK;
+  if (misalign > 0)
+    base_chunk =(mchunkptr) ((char*)base_chunk + MALLOC_ALIGNMENT - misalign);
+
+  fprintf(stderr,"this heap: %p, top ptr: %p, base ptr: %p, bit mask: %lx\n",cur_heap, top_ptr, base_chunk,(chunksize_nomask(base_chunk) & SIZE_BITS));
+  cur_chunk_ptr = base_chunk;
+  // if base_chunk is larger than top_ptr, then this arena is not used, WHY?
+  if (base_chunk > top_ptr) {
+    fprintf(stderr, "this arena is not used\n");
+    return 0;
+  }
+  __dprintf ("this arena base chunk: %p, bit mask: %lx\n", base_chunk, (chunksize_nomask(base_chunk) & SIZE_BITS));
+  // free all chunks that is not phx_used but marked as used
+  while (next_chunk(cur_chunk_ptr) < top_ptr){
+    int current_used = prev_inuse(next_chunk(cur_chunk_ptr));
+    int ret_val = clean_one_chunk (cur_chunk_ptr, current_used, cur_arena,
+            top_ptr, cleanup_size);
+    if (ret_val == -1) {
+      fprintf(stderr, "chunk error, should not iterate this heap\n");
+      break;
+    }
+    heap_cleanup_cnt += ret_val;
+    cur_chunk_ptr = next_chunk (cur_chunk_ptr);
+    if (cur_chunk_ptr >= top_ptr) break;
+    if (chunksize(cur_chunk_ptr) < MINSIZE) {
+        fprintf(stderr, "this chunk: %p wrong size: %ld\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
+        break;
+    }
+  }
+  fprintf (stderr, "this heap: %p, cleanup_cnt: %d\n", cur_heap,
+      heap_cleanup_cnt);
+  return heap_cleanup_cnt;
+}
+
+int
+clean_one_arena ( struct malloc_state* const cur_arena,  size_t* const cleanup_size)
+{
+  heap_info *cur_heap = heap_for_ptr (top (cur_arena));
+  int arena_cleanup_cnt = 0;
+  while (cur_heap != NULL)
+  {
+    arena_cleanup_cnt += clean_one_heap(cur_heap, cleanup_size, cur_arena);  
+    cur_heap = cur_heap->prev;
+  }
+
+  if (atomic_load_relaxed (&cur_arena->have_fastchunks)) {
+    atomic_store_relaxed (&cur_arena->have_fastchunks, false);
+    mstate av = cur_arena;
+    mfastbinptr* fb;
+    mfastbinptr *maxfb;
+    mchunkptr p;
+    maxfb = &fastbin (av, NFASTBINS - 1);
+    fb = &fastbin (av, 0);
+    do {
+      p = atomic_exchange_acquire (fb, NULL);
+      if (p != 0) {
+        if (__glibc_unlikely (misaligned_chunk (p))) { 
+          fprintf(stderr, "malloc_consolidate(): "
+              "unaligned fastbin chunk detected: %p, av: %p\n", p, av);     
+          malloc_printerr ("malloc_consolidate(): ");
+        }
+        unsigned int idx = fastbin_index (chunksize (p));
+        if ((&fastbin (av, idx)) != fb) {
+          fprintf (stderr, "malloc_consolidate(): invalid chunk size, at %p, idx: %d, fbmax-fb: %ld, size: %ld\n", p, idx, maxfb - fb, chunksize(p));
+          malloc_printerr ("malloc_consolidate(): invalid chunk size, at");
+        }
+      }
+    } while (fb++ != maxfb);
+  }
+  return arena_cleanup_cnt;
+}
+
+int
+clean_main_arena (size_t *const cleanup_size)
+{
+  struct malloc_state *cur_arena = &main_arena;
+  mchunkptr cur_chunk_ptr = NULL, base_chunk = (mchunkptr) mp_.sbrk_base;
+  mchunkptr top_ptr = top (cur_arena);
+
+  cur_chunk_ptr = base_chunk;
+  int arena_cleanup_cnt = 0;
+
+  while (next_chunk(cur_chunk_ptr) < top_ptr)
+  {
+    int current_used= prev_inuse (next_chunk(cur_chunk_ptr));
+    int ret_val = clean_one_chunk (cur_chunk_ptr, current_used, cur_arena, top_ptr, cleanup_size);
+    if (ret_val == -1) {
+      fprintf(stderr, "chunk error, should not iterate this arena\n");
+      return arena_cleanup_cnt;
+    }
+    arena_cleanup_cnt += ret_val;
+    cur_chunk_ptr = next_chunk (cur_chunk_ptr);
+    if (cur_chunk_ptr >= top_ptr) break;
+  }
+  return arena_cleanup_cnt;
+}
+
+void
+__libc_phx_cleanup (void)
+{
+  struct malloc_state *cur_arena = &main_arena;
+  size_t cleanup_size = 0, heap_total_size = 0;
+  int cleanup_cnt = 0;
+  //fprintf(stderr, "print marked arenas\n");
+  for (int i=0; i<marked_len;i++) {
+    cur_arena = marked_arenas[i];
+    //fprintf(stderr, "arena: %p\n", cur_arena);
+    heap_info* cur_heap = heap_for_ptr(top(cur_arena));
+    while (cur_heap != NULL) {
+        heap_total_size += cur_heap->size;
+        fprintf(stderr, "   has heap: %p, size: %lx, heap top: %p\n", cur_heap, cur_heap->size, (void*)((unsigned long)cur_heap + cur_heap->size));
+        cur_heap = cur_heap->prev;
+    }
+  }
+  cur_arena = &main_arena;
+  mchunkptr top_ptr;
+
+  // traverse main arena
+  mchunkptr base_chunk = (mchunkptr) mp_.sbrk_base;
+  top_ptr = top (cur_arena);
+  heap_total_size += (size_t)((void*)MORECORE(0) - (void*)mp_.sbrk_base);
+  fprintf(stderr, "main arena:%p, top ptr: %p, heap_for_main: %p\n", cur_arena, top_ptr, heap_for_ptr(top_ptr));
+  fprintf(stderr, "main arena base_chunk: %p, size: %lx\n", base_chunk, *(size_t*)((char*)base_chunk+ sizeof(size_t)) );
+  cleanup_cnt += clean_main_arena(&cleanup_size);
+  fprintf(stderr, "done cleanup main arena: clean: %d\n", cleanup_cnt);
+
+  // traverse other arena
+  for (int i=0; i< marked_len; i++) {
+    cur_arena = marked_arenas[i];
+    cleanup_cnt += clean_one_arena(cur_arena, &cleanup_size);
+    }
+
+  
+  fprintf(stderr, "cleanup total: %d chunks, %ld bytes\n", cleanup_cnt, cleanup_size);
+  fprintf(stderr, "heap total size: %ld\n", heap_total_size);
+  fprintf(stderr, "preserved size: %ld, preserved chunk cnt: %ld\n", preserved_size, preserved_cnt);
+}
 
 void *
 __libc_phx_get_malloc_ranges (void)
@@ -3850,7 +4170,6 @@ __libc_phx_get_malloc_ranges (void)
     heap_info *heap = heap_for_ptr (top (cur_arena));
     allocator_list[i]->start = (void *)heap;
     allocator_list[i]->end = (void *)(heap->size + (void *)heap);
-
     while (heap->prev != NULL)
     {
       i += 1;
@@ -3858,6 +4177,7 @@ __libc_phx_get_malloc_ranges (void)
       allocator_list[i] = (allocator_info *) MMAP (0, size, mtag_mmap_flags | PROT_READ | PROT_WRITE, 0);
       allocator_list[i]->start = (void *)heap;
       allocator_list[i]->end = (void *)(heap->size + (void *)heap);
+      
     }
 
     cur_arena = cur_arena->next;
@@ -4818,9 +5138,11 @@ _int_free (mstate av, mchunkptr p, int have_lock)
       {
 	/* Check that the top of the bin is not the record we are going to
 	   add (i.e., double free).  */
-	if (__builtin_expect (old == p, 0))
-	  malloc_printerr ("double free or corruption (fasttop)");
-	p->fd = PROTECT_PTR (&p->fd, old);
+	if (__builtin_expect (old == p, 0)) {
+	  fprintf(stderr, "for ptr: %p\n", old);
+        malloc_printerr ("double free or corruption (fasttop)");
+    }
+      p->fd = PROTECT_PTR (&p->fd, old);
 	*fb = p;
       }
     else
@@ -4828,9 +5150,11 @@ _int_free (mstate av, mchunkptr p, int have_lock)
 	{
 	  /* Check that the top of the bin is not the record we are going to
 	     add (i.e., double free).  */
-	  if (__builtin_expect (old == p, 0))
+	  if (__builtin_expect (old == p, 0)){ 
+        fprintf(stderr, "for ptr: %p\n", old);
 	    malloc_printerr ("double free or corruption (fasttop)");
-	  old2 = old;
+	  }
+    old2 = old;
 	  p->fd = PROTECT_PTR (&p->fd, old);
 	}
       while ((old = catomic_compare_and_exchange_val_rel (fb, p, old2))
@@ -5030,13 +5354,18 @@ static void malloc_consolidate(mstate av)
       do {
 	{
 	  if (__glibc_unlikely (misaligned_chunk (p)))
-	    malloc_printerr ("malloc_consolidate(): "
-			     "unaligned fastbin chunk detected");
-
+      { 
+		fprintf(stderr, "malloc_consolidate(): "
+          "unaligned fastbin chunk detected: %p, av: %p\n", p, av);
+        
+        malloc_printerr ("malloc_consolidate(): ");
+      }
 	  unsigned int idx = fastbin_index (chunksize (p));
-	  if ((&fastbin (av, idx)) != fb)
-	    malloc_printerr ("malloc_consolidate(): invalid chunk size");
-	}
+	  if ((&fastbin (av, idx)) != fb) {
+	    fprintf (stderr, "malloc_consolidate(): invalid chunk size, at %p, idx: %d, fbmax-fb: %ld, size: %ld\n", p, idx, maxfb - fb, chunksize(p));
+	    malloc_printerr ("malloc_consolidate(): invalid chunk size, at");
+	  }
+    }
 
 	check_inuse_chunk(av, p);
 	nextp = REVEAL_PTR (p->fd);
@@ -5050,8 +5379,10 @@ static void malloc_consolidate(mstate av)
 	  prevsize = prev_size (p);
 	  size += prevsize;
 	  p = chunk_at_offset(p, -((long) prevsize));
-	  if (__glibc_unlikely (chunksize(p) != prevsize))
+	  if (__glibc_unlikely (chunksize(p) != prevsize)) {
+	    fprintf(stderr, "corrupted size vs. prev_size in fastbins, p: %p\n", p);
 	    malloc_printerr ("corrupted size vs. prev_size in fastbins");
+      }
 	  unlink_chunk (av, p);
 	}
 
@@ -5944,6 +6275,8 @@ extern char **__libc_argv attribute_hidden;
 static void
 malloc_printerr (const char *str)
 {
+    fprintf(stderr, "error occured\n");
+    while (1){}
 #if IS_IN (libc)
   __libc_message ("%s\n", str);
 #else
@@ -6197,6 +6530,8 @@ weak_alias (__libc_memalign, memalign)
 strong_alias (__libc_realloc, __realloc) strong_alias (__libc_realloc, realloc)
 strong_alias (__libc_valloc, __valloc) weak_alias (__libc_valloc, valloc)
 strong_alias (__libc_phx_get_malloc_ranges, __phx_get_malloc_ranges) weak_alias (__libc_phx_get_malloc_ranges, phx_get_malloc_ranges)
+strong_alias (__libc_phx_marked_used, __phx_marked_used) weak_alias (__libc_phx_marked_used, phx_marked_used)
+strong_alias (__libc_phx_cleanup, __phx_cleanup) weak_alias (__libc_phx_cleanup, phx_cleanup)
 strong_alias (__libc_phx_malloc_preserve_meta, __phx_malloc_preserve_meta) weak_alias (__libc_phx_malloc_preserve_meta, phx_malloc_preserve_meta)
 strong_alias (__libc_pvalloc, __pvalloc) weak_alias (__libc_pvalloc, pvalloc)
 strong_alias (__libc_mallinfo, __mallinfo)

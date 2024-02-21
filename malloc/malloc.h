@@ -80,6 +80,10 @@ extern void *pvalloc (size_t __size) __THROW __attribute_malloc__
 /* Get the phx malloc ranges */
 extern void *phx_get_malloc_ranges (void) __THROW;
 
+extern void phx_marked_used (void *ptr) __THROW;
+
+extern void phx_cleanup (void) __THROW;
+
 extern void phx_malloc_preserve_meta (void) __THROW;
 
 /* SVID2/XPG mallinfo structure */

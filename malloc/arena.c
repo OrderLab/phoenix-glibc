@@ -23,12 +23,12 @@
 #endif
 #include <elf/dl-tunables.h>
 
-#if 1
+/*#if 1
   #define __dprintf(fmt, ...) do { } while (0)
 #else
   #define __dprintf(fmt, ...) do { fprintf(stderr, "phxalloc: " fmt, ##__VA_ARGS__); } while (0)
 #endif
-
+*/
 /* Compile-time constants.  */
 
 #define HEAP_MIN_SIZE (32 * 1024)
