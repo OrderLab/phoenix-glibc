@@ -1378,6 +1378,8 @@ checked_request2size (size_t req) __nonnull (1)
 
 #define PHX_MARK_USED(p) ((p)->mchunk_size |= PHX_USED)
 
+#define PHX_MARK_UNUSED(p) ((p)->mchunk_size &= ~PHX_USED)
+
 #define PHX_CHECK_USED(p) ((p)->mchunk_size & PHX_USED)
 /*
    Bits to mask off when extracting size
@@ -3961,6 +3963,7 @@ clean_one_chunk (const mchunkptr cur_chunk_ptr, const int current_used, struct m
     __dprintf ("prev chunk is free: %p, size: %lx\n", cur_chunk_ptr,
     chunksize (cur_chunk_ptr));
   } else {
+    PHX_MARK_UNUSED(cur_chunk_ptr);
     __dprintf("prev chunk is marked as used: %p, size: %lx\n", cur_chunk_ptr, chunksize(cur_chunk_ptr));
   }
   return chunk_cleanup_cnt;
